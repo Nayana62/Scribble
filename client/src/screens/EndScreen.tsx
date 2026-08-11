@@ -1,0 +1,158 @@
+import { socket } from "../socket";
+import type { Player, RankedGroup } from "../types";
+
+type EndScreenProps = {
+  roomId: string;
+  sortedPlayers: Player[];
+  firstPlace: RankedGroup | undefined;
+  secondPlace: RankedGroup | undefined;
+  thirdPlace: RankedGroup | undefined;
+  onPlayAgain: () => void;
+  onBackToMain: () => void;
+};
+
+export function EndScreen({
+  roomId,
+  sortedPlayers,
+  firstPlace,
+  secondPlace,
+  thirdPlace,
+  onPlayAgain,
+  onBackToMain,
+}: EndScreenProps) {
+  return (
+    <div className="w-full min-h-screen flex flex-col items-center justify-center p-4 gap-5 overflow-hidden">
+      <div className="text-center shrink-0">
+        <h1 className="text-3xl sm:text-4xl font-black text-white uppercase tracking-wider drop-shadow-md">
+          Game Finished!
+        </h1>
+        <p className="text-white/60 text-xs sm:text-sm mt-1">
+          Here are the final standings of room <span className="font-mono font-bold text-white">{roomId}</span>
+        </p>
+      </div>
+
+      <div className="flex items-end justify-center gap-4 sm:gap-6 mt-4 w-full max-w-sm shrink-0 px-2">
+        {secondPlace ? (
+          <div className="flex flex-col items-center flex-1">
+            <div className="text-center mb-2 min-h-[48px] flex flex-col justify-end">
+              {secondPlace.players.map((p) => (
+                <span key={p.id} className="font-bold text-sm block truncate max-w-[80px]" style={{ color: p.color }}>
+                  {p.name}
+                </span>
+              ))}
+              <span className="text-slate-300 font-mono text-[10px] font-semibold">{secondPlace.score} pts</span>
+            </div>
+            <div className="w-full bg-slate-400/25 border-t border-x border-slate-300/30 rounded-t-xl h-24 flex flex-col items-center justify-center shadow-lg backdrop-blur-xs">
+              <span className="text-3xl font-extrabold text-slate-300">2</span>
+              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-1">Silver</span>
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1" />
+        )}
+
+        {firstPlace ? (
+          <div className="flex flex-col items-center flex-1">
+            <div className="text-center mb-2 min-h-[48px] flex flex-col justify-end items-center">
+              <span className="text-xl animate-bounce mb-1">👑</span>
+              {firstPlace.players.map((p) => (
+                <span key={p.id} className="font-black text-base block truncate max-w-[90px]" style={{ color: p.color }}>
+                  {p.name}
+                </span>
+              ))}
+              <span className="text-yellow-300 font-mono text-[10px] font-bold">{firstPlace.score} pts</span>
+            </div>
+            <div className="w-full bg-yellow-500/25 border-t-2 border-x border-yellow-300/40 rounded-t-xl h-32 flex flex-col items-center justify-center shadow-xl backdrop-blur-xs">
+              <span className="text-4xl font-black text-yellow-300 drop-shadow-md">1</span>
+              <span className="text-[9px] text-yellow-400 font-extrabold uppercase tracking-widest mt-1">Winner</span>
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1" />
+        )}
+
+        {thirdPlace ? (
+          <div className="flex flex-col items-center flex-1">
+            <div className="text-center mb-2 min-h-[48px] flex flex-col justify-end">
+              {thirdPlace.players.map((p) => (
+                <span key={p.id} className="font-bold text-xs block truncate max-w-[80px]" style={{ color: p.color }}>
+                  {p.name}
+                </span>
+              ))}
+              <span className="text-amber-500 font-mono text-[10px] font-semibold">{thirdPlace.score} pts</span>
+            </div>
+            <div className="w-full bg-amber-700/25 border-t border-x border-amber-500/30 rounded-t-xl h-20 flex flex-col items-center justify-center shadow-md backdrop-blur-xs">
+              <span className="text-2xl font-extrabold text-amber-500">3</span>
+              <span className="text-[9px] text-amber-600/80 font-bold uppercase tracking-widest mt-1">Bronze</span>
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1" />
+        )}
+      </div>
+
+      <div className="w-full max-w-sm bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-4 flex flex-col gap-3 flex-1 min-h-0 overflow-hidden shadow-2xl">
+        <h2 className="text-white font-bold text-center text-xs uppercase tracking-widest shrink-0">
+          Final Scoreboard
+        </h2>
+        <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
+          {sortedPlayers.map((player, index) => {
+            const isYou = player.id === socket.id;
+            return (
+              <div
+                key={player.id}
+                className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all ${
+                  isYou
+                    ? "bg-white/20 ring-1 ring-white/35"
+                    : "bg-white/5 hover:bg-white/10"
+                }`}
+              >
+                <span className="text-xs font-bold text-white/50 w-4 font-mono">
+                  #{index + 1}
+                </span>
+
+                <div
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-black text-white shrink-0 shadow-sm"
+                  style={{ backgroundColor: player.color }}
+                >
+                  {player.name.charAt(0).toUpperCase()}
+                </div>
+
+                <span
+                  className="font-bold text-sm flex-1 truncate"
+                  style={{ color: player.color }}
+                >
+                  {player.name}
+                  {isYou && (
+                    <span className="ml-1.5 text-[8px] bg-white/20 text-white font-black px-1.5 py-0.5 rounded uppercase">
+                      you
+                    </span>
+                  )}
+                </span>
+
+                <span className="text-white font-mono font-bold text-sm">
+                  {player.score} pts
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex gap-3 w-full max-w-sm shrink-0">
+        <button
+          onClick={onPlayAgain}
+          className="flex-1 py-3.5 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-white font-black text-sm rounded-xl transition-all shadow-lg shadow-emerald-950/20 cursor-pointer"
+        >
+          🔄 Play Again
+        </button>
+        <button
+          onClick={onBackToMain}
+          className="flex-1 py-3.5 bg-white/10 hover:bg-white/20 border border-white/20 active:scale-95 text-white font-black text-sm rounded-xl transition-all cursor-pointer"
+        >
+          🏠 Home Menu
+        </button>
+      </div>
+    </div>
+  );
+}
