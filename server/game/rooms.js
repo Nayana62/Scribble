@@ -58,10 +58,26 @@ function initRoom(roomId, hostId) {
     actionLog: [],
     /** Words locked in this game — reset on play again. */
     usedWords: [],
-    /** @type {'choosing'|'drawing'|null} */
+    /** @type {'announcement'|'choosing'|'drawing'|null} */
     roundPhase: null,
     /** Server-only options for the current choosing phase (never broadcast). */
     choosingOptions: null,
+    /** Whether to reset the used-words pool when a word is locked in. */
+    shouldResetUsedPoolOnLock: false,
+    /** Cycle number shown during the announcement overlay. */
+    announcementCycleNumber: 0,
+    /**
+     * Ordered list of correct guesses for the active drawing round.
+     * Each entry: { playerId: string, guessedAt: number (epoch ms), name: string }
+     * Cleared at the start of each drawing phase and when endRound fires.
+     */
+    correctGuesses: [],
+    /**
+     * Epoch-ms when the active drawing timer expires.
+     * Stored here so computeRoundScores can calculate time-remaining bonuses
+     * even after clearRoundTimer() has already been called.
+     */
+    roundEndsAt: null,
     // Timer state is managed externally in game/timer.js (keyed by roomId + kind).
   };
   rooms.set(roomId, room);

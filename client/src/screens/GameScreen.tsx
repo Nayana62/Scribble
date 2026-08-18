@@ -28,6 +28,7 @@ export function GameScreen() {
     wordOptions,
     drawerName,
     cycleNumber,
+    correctGuessers,
   } = state;
 
   const [inputBarHeight, setInputBarHeight] = useState(0);
@@ -69,6 +70,8 @@ export function GameScreen() {
         isDrawer={isDrawer}
         wordOptions={wordOptions}
         drawerName={drawerName}
+        roundResult={state.roundResult}
+        myId={socket.id || ""}
       />
     </div>
   );
@@ -99,7 +102,7 @@ export function GameScreen() {
 
         <div className="shrink-0 h-[30vh] flex gap-x-2 min-h-0 overflow-hidden">
           <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
-            <PlayerList players={players} hostId={hostId} drawerId={drawerId} />
+            <PlayerList players={players} hostId={hostId} drawerId={drawerId} correctGuessers={correctGuessers} />
           </div>
           <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
             <ChatPanel role={role} players={players} />
@@ -110,7 +113,7 @@ export function GameScreen() {
       {/* Desktop: 3-column grid */}
       <div className="hidden md:grid flex-1 min-h-0 p-3 grid-cols-12 gap-3 overflow-hidden">
         <div className="col-span-3 h-full min-h-0 overflow-hidden">
-          <PlayerList players={players} hostId={hostId} drawerId={drawerId} />
+          <PlayerList players={players} hostId={hostId} drawerId={drawerId} correctGuessers={correctGuessers} />
         </div>
 
         <div className="col-span-6 min-h-0 flex flex-col gap-2 overflow-hidden h-full">

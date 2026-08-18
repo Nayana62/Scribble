@@ -4,7 +4,7 @@ import type { Player } from "@/types";
 
 type LogEntry = {
   id: string;
-  type: "chat" | "guess" | "system" | "round_end";
+  type: "chat" | "guess" | "system";
   text: string;
   senderId?: string;
   senderName?: string;
@@ -25,16 +25,38 @@ export const ChatLog = ({ players }: Props) => {
       senderId,
       senderName,
       correct,
+      isSystemGuess,
+      isSelfConfirm,
     }: {
-      text: string;
+      text?: string;
       senderId: string;
       senderName: string;
       correct: boolean;
+      isSystemGuess?: boolean;
+      isSelfConfirm?: boolean;
     }) => {
-      setEntries((prev) => [
-        ...prev,
-        { id: Math.random().toString(), type: "guess", text, senderId, senderName, correct },
-      ]);
+      if (isSystemGuess || isSelfConfirm) {
+        setEntries((prev) => [
+          ...prev,
+          {
+            id: Math.random().toString(),
+            type: "system",
+            text: `✅ ${senderName} guessed the word!`,
+          },
+        ]);
+      } else {
+        setEntries((prev) => [
+          ...prev,
+          {
+            id: Math.random().toString(),
+            type: "guess",
+            text: text || "",
+            senderId,
+            senderName,
+            correct,
+          },
+        ]);
+      }
     };
 
     const handleChatMessage = ({
@@ -48,34 +70,12 @@ export const ChatLog = ({ players }: Props) => {
     }) => {
       setEntries((prev) => [
         ...prev,
-        { id: Math.random().toString(), type: "chat", text, senderId, senderName },
-      ]);
-    };
-
-    const handleRoundEnd = ({
-      correctWord,
-      winnerName,
-    }: {
-      correctWord: string;
-      winnerName: string;
-    }) => {
-      setEntries((prev) => [
-        ...prev,
         {
           id: Math.random().toString(),
-          type: "round_end",
-          text: `🎉 ${winnerName} guessed "${correctWord}"!`,
-        },
-      ]);
-    };
-
-    const handleRoundTimeout = ({ word }: { word: string }) => {
-      setEntries((prev) => [
-        ...prev,
-        {
-          id: Math.random().toString(),
-          type: "round_end",
-          text: `⏰ Time's up! The word was "${word}".`,
+          type: "chat",
+          text,
+          senderId,
+          senderName,
         },
       ]);
     };
@@ -145,8 +145,6 @@ export const ChatLog = ({ players }: Props) => {
 
     socket.on("guessResult", handleGuessResult);
     socket.on("chatMessage", handleChatMessage);
-    socket.on("roundEnd", handleRoundEnd);
-    socket.on("roundTimeout", handleRoundTimeout);
     socket.on("roundStart", handleRoundStart);
     socket.on("waitingForPlayers", handleWaitingForPlayers);
     socket.on("hostChanged", handleHostChanged);
@@ -156,8 +154,6 @@ export const ChatLog = ({ players }: Props) => {
     return () => {
       socket.off("guessResult", handleGuessResult);
       socket.off("chatMessage", handleChatMessage);
-      socket.off("roundEnd", handleRoundEnd);
-      socket.off("roundTimeout", handleRoundTimeout);
       socket.off("roundStart", handleRoundStart);
       socket.off("waitingForPlayers", handleWaitingForPlayers);
       socket.off("hostChanged", handleHostChanged);
@@ -181,18 +177,11 @@ export const ChatLog = ({ players }: Props) => {
           return (
             <div
               key={entry.id}
-              className="text-xs text-center font-semibold text-blue-200 bg-white/10 px-2 py-1.5 rounded-lg my-1"
-            >
-              {entry.text}
-            </div>
-          );
-        }
-
-        if (entry.type === "round_end") {
-          return (
-            <div
-              key={entry.id}
-              className="text-xs text-center font-bold text-emerald-300 bg-emerald-900/40 px-2 py-2 rounded-lg my-1 border border-emerald-500/30"
+              className={`text-xs text-center font-semibold px-2 py-1.5 rounded-lg my-1 ${
+                entry.text.startsWith("✅")
+                  ? "text-emerald-300 bg-emerald-900/30"
+                  : "text-blue-200 bg-white/10"
+              }`}
             >
               {entry.text}
             </div>
@@ -212,10 +201,7 @@ export const ChatLog = ({ players }: Props) => {
                 : "bg-white/10 text-white/90"
             }`}
           >
-            <span 
-              className="font-bold mr-1" 
-              style={{ color: nameColor }}
-            >
+            <span className="font-bold mr-1" style={{ color: nameColor }}>
               {entry.senderName}:
             </span>
             <span>{entry.text}</span>

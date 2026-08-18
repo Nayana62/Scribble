@@ -17,7 +17,7 @@ const {
 } = require("../game/turnOrder");
 
 const {
-  awardPoints,
+  computeRoundScores,
   checkCycleCompleted,
   isGameFinished,
 } = require("../game/scoring");
@@ -57,14 +57,16 @@ module.exports = function(io) {
     /**
      * Consolidated round-ending logic.
      *
-     * Cancels the running round timer unconditionally, then transitions to the
-     * next round based on the reason:
+     * 1. Cancels all timers unconditionally.
+     * 2. Computes multi-guesser scores from room.correctGuesses.
+     * 3. Applies point deltas to each player's running total.
+     * 4. Emits `roundResult` to all clients (word + sorted scores).
+     * 5. After 5 seconds, advances turn order and starts the next choosing phase.
      *
-     *  'allGuessed'        — caller already emitted `roundEnd` and awarded points;
-     *                        wait 2.5 s then start the next round.
-     *  'timeout'           — no correct guess; reveal the word via `roundTimeout`,
-     *                        wait 2.5 s then start the next round.
-     *  'drawerDisconnected'— drawer left; start the next round immediately.
+     * Handles all three reasons the same way:
+     *  'allGuessed'         — everyone eligible has guessed correctly
+     *  'timeout'            — draw timer expired
+     *  'drawerDisconnected' — drawer left (already-earned guesser points are kept)
      *
      * @param {object} room
      * @param {string} roomId
@@ -73,17 +75,66 @@ module.exports = function(io) {
     function endRound(room, roomId, reason) {
       // Always clear all timers first — regardless of why we're ending.
       clearRoundTimer(roomId);
-      room.roundPhase = null;
+      room.roundPhase    = null;
       room.choosingOptions = null;
 
-      if (reason === "timeout") {
-        io.to(roomId).emit("roundTimeout", { word: room.word });
-        setTimeout(() => startRound(roomId), 2500);
-      } else if (reason === "allGuessed") {
-        setTimeout(() => startRound(roomId), 2500);
-      } else if (reason === "drawerDisconnected") {
-        startRound(roomId);
+      // Compute scores before clearing correctGuesses.
+      const { scores, guessScoreMap, drawerPoints } = computeRoundScores(
+        room,
+        ROUND_DURATION_SEC * 1000,
+      );
+
+      // Apply point deltas to running totals for players still in the room.
+      for (const [playerId, player] of room.players) {
+        if (playerId === room.drawerId) {
+          player.score += drawerPoints;
+        } else if (guessScoreMap.has(playerId)) {
+          player.score += guessScoreMap.get(playerId);
+        }
+        // non-guessing non-drawer players earn 0 — no change
       }
+
+      const word = room.word ?? "";
+
+      // Emit roundResult to everyone — this drives the 5-second overlay.
+      io.to(roomId).emit("roundResult", { word, scores });
+
+      // Broadcast updated running totals.
+      broadcastPlayersUpdate(roomId);
+
+      // Clear per-round state.
+      room.correctGuesses = [];
+      room.roundEndsAt    = null;
+
+      // After the overlay has had its 5 seconds, advance to the next turn.
+      setTimeout(() => startRound(roomId), 5000);
+    }
+
+    /**
+     * Check if every currently-eligible non-drawer player has guessed correctly.
+     * If so, end the round immediately.
+     *
+     * "Eligible" is computed fresh each call — disconnected players are excluded,
+     * late joiners are included as soon as they appear in room.players.
+     *
+     * @param {object} room
+     * @param {string} roomId
+     */
+    function checkAllGuessed(room, roomId) {
+      if (room.roundPhase !== "drawing") return;
+
+      const eligible = [...room.players.keys()].filter(
+        (id) => id !== room.drawerId,
+      );
+
+      // If only the drawer remains, don't trigger allGuessed — let the timer run.
+      if (eligible.length === 0) return;
+
+      const allGuessed = eligible.every((id) =>
+        room.correctGuesses.some((g) => g.playerId === id),
+      );
+
+      if (allGuessed) endRound(room, roomId, "allGuessed");
     }
 
     /**
@@ -112,6 +163,8 @@ module.exports = function(io) {
       room.choosingOptions = null;
       room.roundPhase = "drawing";
       room.actionLog = [];
+      // Reset per-round guess tracking for the new drawing phase.
+      room.correctGuesses = [];
 
       const drawerPlayer = room.players.get(room.drawerId);
       const drawerName = drawerPlayer ? drawerPlayer.name : "Drawer";
@@ -120,6 +173,9 @@ module.exports = function(io) {
         endRound(room, roomId, "timeout");
       });
 
+      // Snapshot endsAt now — computeRoundScores needs it even after the timer is cleared.
+      room.roundEndsAt = getEndsAt(roomId, "drawing");
+
       const wordHint = room.word.split("").map(c => c === " " ? " " : "_").join("");
 
       io.to(roomId).emit("roundStart", {
@@ -127,7 +183,7 @@ module.exports = function(io) {
         drawerName,
         wordLength: room.wordLength,
         wordHint,
-        endsAt: getEndsAt(roomId, "drawing"),
+        endsAt: room.roundEndsAt,
         cycleNumber: room.cyclesCompleted + 1,
       });
 
@@ -241,6 +297,8 @@ module.exports = function(io) {
         room.actionLog = [];
         room.roundPhase = null;
         room.choosingOptions = null;
+        room.correctGuesses = [];
+        room.roundEndsAt = null;
         io.to(roomId).emit("canvasCleared");
         io.to(roomId).emit("waitingForPlayers", {
           count: room.players.size,
@@ -261,6 +319,8 @@ module.exports = function(io) {
         room.actionLog = [];
         room.roundPhase = null;
         room.choosingOptions = null;
+        room.correctGuesses = [];
+        room.roundEndsAt = null;
         io.to(roomId).emit("canvasCleared");
         io.to(roomId).emit("gameFinished", {
           players: getPlayersArray(room),
@@ -334,6 +394,10 @@ module.exports = function(io) {
         } else {
           endRound(room, currentRoomId, "drawerDisconnected");
         }
+      } else if (room.status === "in_progress" && room.roundPhase === "drawing") {
+        // A non-drawer left during the drawing phase — re-evaluate eligibility.
+        // If everyone still connected has already guessed, end the round now.
+        checkAllGuessed(room, currentRoomId);
       }
     }
 
@@ -553,6 +617,7 @@ module.exports = function(io) {
       const matchesWord =
         trimmed.toLowerCase() === (room.word || "").toLowerCase();
 
+      // ── A. Drawer path ──────────────────────────────────────────────────────
       if (isDrawer) {
         if (matchesWord) {
           socket.emit("guessBlocked", { text: trimmed });
@@ -567,32 +632,59 @@ module.exports = function(io) {
         return;
       }
 
-      if (matchesWord) {
-        awardPoints(room, socket.id);
-
-        io.to(roomId).emit("guessResult", {
-          text: trimmed,
-          senderId: socket.id,
-          senderName,
-          correct: true,
-        });
-
-        io.to(roomId).emit("roundEnd", {
-          correctWord: room.word,
-          winnerId: socket.id,
-          winnerName: senderName,
-        });
-
-        broadcastPlayersUpdate(roomId);
-        endRound(room, roomId, "allGuessed");
-      } else {
+      // ── B. Already-guessed player: treat subsequent messages as normal chat ──
+      const alreadyGuessed = room.correctGuesses.some(
+        (g) => g.playerId === socket.id,
+      );
+      if (alreadyGuessed) {
+        // Re-evaluation suppressed; render as a plain (incorrect-style) chat entry.
         io.to(roomId).emit("guessResult", {
           text: trimmed,
           senderId: socket.id,
           senderName,
           correct: false,
         });
+        return;
       }
+
+      // ── C. Correct guess (first time) ───────────────────────────────────────
+      if (matchesWord) {
+        // Record the guess with timestamp and name (name stored so it survives disconnect).
+        room.correctGuesses.push({
+          playerId: socket.id,
+          guessedAt: Date.now(),
+          name: senderName,
+        });
+
+        // To the guesser: confirm their own correct guess (they see their text + checkmark).
+        socket.emit("guessResult", {
+          text: trimmed,
+          senderId: socket.id,
+          senderName,
+          correct: true,
+          isSelfConfirm: true,
+        });
+
+        // To everyone else: system-style notification — NO word text to prevent leaking.
+        socket.to(roomId).emit("guessResult", {
+          senderId: socket.id,
+          senderName,
+          correct: true,
+          isSystemGuess: true,
+        });
+
+        // Check whether all eligible players have now guessed; end early if so.
+        checkAllGuessed(room, roomId);
+        return;
+      }
+
+      // ── D. Wrong guess ──────────────────────────────────────────────────────
+      io.to(roomId).emit("guessResult", {
+        text: trimmed,
+        senderId: socket.id,
+        senderName,
+        correct: false,
+      });
     });
 
     // ── Play Again ────────────────────────────────────────────────────────────
@@ -613,6 +705,8 @@ module.exports = function(io) {
       room.usedWords = [];
       room.roundPhase = null;
       room.choosingOptions = null;
+      room.correctGuesses = [];
+      room.roundEndsAt = null;
 
       for (const p of room.players.values()) {
         p.score = 0;

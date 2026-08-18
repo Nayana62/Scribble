@@ -36,11 +36,12 @@ Detailed architectural specifications for the Scribble Node.js + Socket.IO serve
                    ┌────────────────────┼────────────────────┐
                    │                   │                     │
             'allGuessed'          'timeout'       'drawerDisconnected'
-            Broadcast             Broadcast             Immediate
-            `roundEnd`           `roundTimeout`         startRound
-            2.5s delay            2.5s delay
                    │                   │                     │
-                   └────────────────────┴────────────────────┘
+                   └───────────────────┴─────────────────────┘
+                                        │
+                         Emit `roundResult` (Scores & Word)
+                         Show 5-second results overlay
+                                        │
                                         │
                    ┌────────────────────┴────────────────────┐
                    │                                         │
@@ -76,6 +77,8 @@ Each room state object in the internal `Map` holds:
   shouldResetUsedPoolOnLock: boolean,
   actionLog: object[],          // ordered drawing action log: { type:'stroke'|'fill'|'clear', ...payload }
                                  // used for late-joiner canvas replay; undo pops the last entry.
+  correctGuesses: object[],     // per-round ordered list: { playerId, guessedAt, name }
+  roundEndsAt: number | null,   // epoch-ms expiry of current drawing phase
   // Round timer state is managed externally in game/timer.js (keyed by roomId).
 }
 ```
@@ -85,10 +88,10 @@ Each room state object in the internal `Map` holds:
 - **`reassignHost(room)`** *(in `game/turnOrder.js`)*: Pure function. Transfers host permissions (crown icon) to the next oldest active socket ID in `joinOrder`.
 - **`checkCycleCompleted(room, currentDrawerId)`** *(in `game/scoring.js`)*: Pure function. Checks if the next round wraps back to player index 0, incrementing `room.cyclesCompleted`.
 - **`isGameFinished(room)`** *(in `game/scoring.js`)*: Pure function. Returns if `room.cyclesCompleted >= 3`.
-- **`awardPoints(room, guesserId)`** *(in `game/scoring.js`)*: Pure function. Increments scores (+50 guesser, +20 drawer).
+- **`computeRoundScores(room, duration)`** *(in `game/scoring.js`)*: Rank-based point calculation (100+bonus/80+bonus/60+bonus/50) based on guess order and time remaining, plus drawer points (max 100 based on correct guesser count).
 - **`assignColor(room)`** *(in `game/rooms.js`)*: Cycles through a 12-color palette to assign next player color.
 - **`pickWord()`** *(in `game/words.js`)*: Selects a random word.
-- **`endRound(room, roomId, reason)`** *(inner function in `socket/index.js`)*: Consolidated round-ending logic. Cancels the round timer unconditionally, then routes to the correct transition based on `reason: 'allGuessed' | 'timeout' | 'drawerDisconnected'`.
+- **`endRound(room, roomId, reason)`** *(inner function in `socket/index.js`)*: Consolidated round-ending logic. Cancels timers, computes and applies scores via `computeRoundScores`, emits `roundResult`, and sets a 5s timeout to start the next round.
 
 ---
 
@@ -107,7 +110,7 @@ The server is decoupled into separate modules separating socket networking from 
 4. **`game/turnOrder.js` (Turn Rotation Engine)**:
    - Houses pure functions to calculate sequential drawing rotation and host promotion queue based on connection timestamps.
 5. **`game/scoring.js` (Rules Engine)**:
-   - Pure functions that process scores (+50 for guesser, +20 for drawer), track cyclesCompleted, and decide game termination.
+   - Contains pure functions that compute multi-guesser point deltas `computeRoundScores` and track game cycle progression `checkCycleCompleted`.
 6. **`game/words.js` (Word Repository)**:
    - Word lists and random pick queries.
 7. **`game/timer.js` (Round Timer)**:
@@ -127,8 +130,7 @@ The server is decoupled into separate modules separating socket networking from 
 | `newCycleAnnouncement` | `{ cycleNumber }` | Round announcement phase begins |
 | `choosingStarted` | `{ drawerId, drawerName, endsAt, options?, cycleNumber }` | Drawer choosing phase begins |
 | `roundStart` | `{ drawerId, drawerName, wordLength, wordHint, endsAt, cycleNumber }` | New round begins (drawing phase) |
-| `roundEnd` | `{ correctWord, winnerId, winnerName }` | A correct guess ends the round |
-| `roundTimeout` | `{ word }` | 80s expires with no correct guess |
+| `roundResult` | `{ word, scores }` | A round ends (timeout, all guessed, drawer left). Shows the 5s points overlay. |
 | `gameFinished` | `{ players }` | All cycles completed |
 | `playersUpdate` | `{ players, hostId, status, drawerId }` | Any roster change |
 | `waitingForPlayers` | `{ count, min, reason? }` | Player count drops below minimum |
@@ -138,7 +140,7 @@ The server is decoupled into separate modules separating socket networking from 
 | `drawAction` | `{ type: 'stroke'\|'fill'\|'clear'\|'undo', ...payload }` | Relays drawing actions to other clients |
 | `actionReplay` | `{ actions: DrawAction[] }` | Late-joiner canvas replay |
 | `canvasCleared` | — | Canvas wipe |
-| `guessResult` | `{ text, senderId, senderName, correct }` | Guess outcome |
+| `guessResult` | `{ text?, senderId, senderName, correct, isSystemGuess?, isSelfConfirm? }` | Guess outcome. Contains no text if `isSystemGuess` to prevent word leaks. |
 | `chatMessage` | `{ text, senderId, senderName, isDrawer }` | Chat from drawer |
 | `guessBlocked` | `{ text }` | Drawer tried to type the word |
 | `notice` | `{ message }` | Server notice toast |

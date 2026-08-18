@@ -1,6 +1,7 @@
 import { ChoosingOverlay } from "./choosing-overlay";
 import { RoundAnnouncementOverlay } from "./round-announcement-overlay";
-import type { RoundPhase } from "@/types";
+import { RoundResultOverlay } from "./round-result-overlay";
+import type { RoundPhase, RoundResultPayload } from "@/types";
 
 type Props = {
   roundPhase: RoundPhase | "announcement" | null;
@@ -9,6 +10,8 @@ type Props = {
   isDrawer: boolean;
   wordOptions: string[];
   drawerName: string;
+  roundResult: RoundResultPayload | null;
+  myId: string;
 };
 
 export function CanvasPhaseOverlays({
@@ -18,7 +21,13 @@ export function CanvasPhaseOverlays({
   isDrawer,
   wordOptions,
   drawerName,
+  roundResult,
+  myId,
 }: Props) {
+  if (roundResult) {
+    return <RoundResultOverlay roundResult={roundResult} myId={myId} />;
+  }
+
   if (roundPhase === "announcement" && cycleNumber !== null) {
     return (
       <RoundAnnouncementOverlay

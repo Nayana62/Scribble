@@ -14,12 +14,12 @@ import type {
   ChoosingStartedPayload,
   ActionReplayPayload,
   YourWordPayload,
-  RoundEndPayload,
-  RoundTimeoutPayload,
+  RoundResultPayload,
   WaitingForPlayersPayload,
   HostChangedPayload,
   NoticePayload,
   GameFinishedPayload,
+  GuessResultPayload,
 } from "../types";
 import {
   gameReducer,
@@ -97,8 +97,20 @@ function useGameSocketEvents(
       dispatch({ type: "YOUR_WORD", word });
     });
 
-    socket.on("roundEnd", ({ correctWord, winnerName }: RoundEndPayload) => {
-      dispatch({ type: "ROUND_ENDED", correctWord, winnerName });
+    socket.on("roundResult", ({ word, scores }: RoundResultPayload) => {
+      dispatch({ type: "ROUND_RESULT", word, scores });
+    });
+
+    socket.on("guessResult", ({ senderId, correct }: GuessResultPayload) => {
+      // Track which players have guessed correctly so the player list can show checkmarks.
+      if (correct && senderId) {
+        dispatch({ type: "CORRECT_GUESSER_ADDED", playerId: senderId });
+      }
+    });
+
+    socket.on("roundTimeout", () => {
+      // roundTimeout is no longer emitted by the server; this handler is a safety no-op
+      // kept here to prevent unhandled-event warnings during a server/client version skew.
     });
 
     socket.on("waitingForPlayers", () => {
@@ -136,7 +148,8 @@ function useGameSocketEvents(
       socket.off("choosingStarted");
       socket.off("actionReplay");
       socket.off("yourWord");
-      socket.off("roundEnd");
+      socket.off("roundResult");
+      socket.off("guessResult");
       socket.off("roundTimeout");
       socket.off("waitingForPlayers");
       socket.off("hostChanged");

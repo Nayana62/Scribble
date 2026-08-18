@@ -5,9 +5,10 @@ type Props = {
   players: Player[];
   hostId: string | null;
   drawerId: string | null;
+  correctGuessers?: string[];
 };
 
-export function PlayerList({ players, hostId, drawerId }: Props) {
+export function PlayerList({ players, hostId, drawerId, correctGuessers = [] }: Props) {
   const currentSocketId = socket.id;
 
   return (
@@ -77,6 +78,14 @@ export function PlayerList({ players, hostId, drawerId }: Props) {
                     className="text-base leading-none select-none animate-pulse"
                   >
                     ✏️
+                  </span>
+                )}
+                {!isDrawer && correctGuessers.includes(player.id) && (
+                  <span
+                    title="Guessed correctly"
+                    className="text-base leading-none select-none"
+                  >
+                    ✅
                   </span>
                 )}
               </div>

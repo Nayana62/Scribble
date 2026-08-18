@@ -4,7 +4,7 @@ import type {
   RoomStatus,
   RoundPhase,
   DrawAction,
-  RoundEndInfo,
+  RoundResultPayload,
 } from "../types";
 
 export type GameState = {
@@ -22,7 +22,8 @@ export type GameState = {
   wordHint: string;
   /** Full ordered action log for late-joiner canvas replay. */
   replayActions: DrawAction[];
-  roundEndInfo: RoundEndInfo | null;
+  /** Payload for the 5-second round-result overlay; null when no overlay is active. */
+  roundResult: RoundResultPayload | null;
   noticeMsg: string;
   /** Epoch ms when the current round expires. Null when no round is active. */
   endsAt: number | null;
@@ -35,6 +36,8 @@ export type GameState = {
   /** True at cycle boundaries — triggers "Round N" announcement before choosing UI. */
   isNewCycle: boolean;
   cycleNumber: number | null;
+  /** IDs of players who have guessed correctly in the current drawing round. */
+  correctGuessers: string[];
 };
 
 export const initialGameState: GameState = {
@@ -51,7 +54,7 @@ export const initialGameState: GameState = {
   wordLength: 0,
   wordHint: "",
   replayActions: [],
-  roundEndInfo: null,
+  roundResult: null,
   noticeMsg: "",
   endsAt: null,
   roundPhase: null,
@@ -59,6 +62,7 @@ export const initialGameState: GameState = {
   wordOptions: [],
   isNewCycle: false,
   cycleNumber: null,
+  correctGuessers: [],
 };
 
 export type Action =
@@ -100,9 +104,8 @@ export type Action =
     }
   | { type: "ACTION_REPLAY"; actions: DrawAction[] }
   | { type: "YOUR_WORD"; word: string }
-  | { type: "ROUND_ENDED"; correctWord: string; winnerName: string }
-  | { type: "ROUND_TIMEOUT"; word: string }
-  | { type: "CLEAR_ROUND_END" }
+  | { type: "ROUND_RESULT"; word: string; scores: RoundResultPayload["scores"] }
+  | { type: "CORRECT_GUESSER_ADDED"; playerId: string }
   | { type: "WAITING_FOR_PLAYERS" }
   | {
       type: "HOST_CHANGED";
@@ -155,7 +158,8 @@ export function gameReducer(state: GameState, action: Action): GameState {
         wordHint: "",
         wordLength: 0,
         endsAt: null,
-        roundEndInfo: null,
+        roundResult: null,
+        correctGuessers: [],
         replayActions: [],
         roomStatus: "in_progress",
         screen: "game",
@@ -175,7 +179,8 @@ export function gameReducer(state: GameState, action: Action): GameState {
         wordLength: 0,
         wordHint: "",
         endsAt: null,
-        roundEndInfo: null,
+        roundResult: null,
+        correctGuessers: [],
         replayActions: [],
         roomStatus: "in_progress",
         screen: "game",
@@ -194,7 +199,8 @@ export function gameReducer(state: GameState, action: Action): GameState {
         wordOptions: [],
         isNewCycle: false,
         cycleNumber: action.cycleNumber,
-        roundEndInfo: null,
+        roundResult: null,
+        correctGuessers: [],
         roomStatus: "in_progress",
         replayActions: [],
         screen: "game",
@@ -212,7 +218,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
         wordHint: action.word,
       };
 
-    case "ROUND_ENDED":
+    case "ROUND_RESULT":
       return {
         ...state,
         endsAt: null,
@@ -220,30 +226,17 @@ export function gameReducer(state: GameState, action: Action): GameState {
         choosingEndsAt: null,
         wordOptions: [],
         isNewCycle: false,
-        cycleNumber: null,
-        roundEndInfo: {
-          correctWord: action.correctWord,
-          winnerName: action.winnerName,
-        },
+        // Keep correctGuessers visible during the overlay so player-list checkmarks stay.
+        roundResult: { word: action.word, scores: action.scores },
       };
 
-    case "ROUND_TIMEOUT":
+    case "CORRECT_GUESSER_ADDED":
+      // Deduplicate — server guarantees idempotency but be safe.
+      if (state.correctGuessers.includes(action.playerId)) return state;
       return {
         ...state,
-        endsAt: null,
-        roundPhase: null,
-        choosingEndsAt: null,
-        wordOptions: [],
-        isNewCycle: false,
-        cycleNumber: null,
-        roundEndInfo: {
-          correctWord: action.word,
-          winnerName: "",
-        },
+        correctGuessers: [...state.correctGuessers, action.playerId],
       };
-
-    case "CLEAR_ROUND_END":
-      return { ...state, roundEndInfo: null };
 
     case "WAITING_FOR_PLAYERS":
       return {
@@ -260,6 +253,8 @@ export function gameReducer(state: GameState, action: Action): GameState {
         wordOptions: [],
         isNewCycle: false,
         cycleNumber: null,
+        roundResult: null,
+        correctGuessers: [],
       };
 
     case "HOST_CHANGED": {
@@ -287,6 +282,8 @@ export function gameReducer(state: GameState, action: Action): GameState {
         wordOptions: [],
         isNewCycle: false,
         cycleNumber: null,
+        roundResult: null,
+        correctGuessers: [],
       };
 
     case "PLAY_AGAIN":
@@ -304,6 +301,8 @@ export function gameReducer(state: GameState, action: Action): GameState {
         wordOptions: [],
         isNewCycle: false,
         cycleNumber: null,
+        roundResult: null,
+        correctGuessers: [],
       };
 
     case "RESET_TO_HOME":
@@ -324,6 +323,8 @@ export function gameReducer(state: GameState, action: Action): GameState {
         wordOptions: [],
         isNewCycle: false,
         cycleNumber: null,
+        roundResult: null,
+        correctGuessers: [],
       };
 
     default:

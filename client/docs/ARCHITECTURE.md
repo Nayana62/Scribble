@@ -84,8 +84,8 @@ Pure reducer — one `Action` type per socket event or state transition:
 | `ROUND_STARTED` | `roundStart` — now carries `endsAt`, `wordHint`, `cycleNumber` |
 | `ACTION_REPLAY` | `actionReplay` |
 | `YOUR_WORD` | `yourWord` |
-| `ROUND_ENDED` / `CLEAR_ROUND_END` | `roundEnd` (+ 2.6s timeout) |
-| `ROUND_TIMEOUT` / `CLEAR_ROUND_END` | `roundTimeout` (+ 2.6s timeout) |
+| `ROUND_RESULT` | `roundResult` |
+| `CORRECT_GUESSER_ADDED` | `guessResult` (when correct: true) |
 | `WAITING_FOR_PLAYERS` | `waitingForPlayers` |
 | `HOST_CHANGED` | `hostChanged` |
 | `SHOW_NOTICE` / `CLEAR_NOTICE` | `notice`, `playerLeft`, host-change toasts |
@@ -93,7 +93,7 @@ Pure reducer — one `Action` type per socket event or state transition:
 | `PLAY_AGAIN` | `playAgain` |
 | `RESET_TO_HOME` | `leaveRoom` handler |
 
-`GameState` fields: `screen`, `roomId`, `isHost`, `hostId`, `players`, `myColor`, `drawerId`, `drawerName`, `roomStatus`, `word`, `wordLength`, `wordHint`, `replayActions`, `roundEndInfo`, `noticeMsg`, `endsAt: number | null`, `roundPhase: RoundPhase | null`, `choosingEndsAt: number | null`, `wordOptions: string[]`, `isNewCycle: boolean`, `cycleNumber: number | null`.
+`GameState` fields: `screen`, `roomId`, `isHost`, `hostId`, `players`, `myColor`, `drawerId`, `drawerName`, `roomStatus`, `word`, `wordLength`, `wordHint`, `replayActions`, `roundResult`, `noticeMsg`, `endsAt: number | null`, `roundPhase: RoundPhase | null`, `choosingEndsAt: number | null`, `wordOptions: string[]`, `isNewCycle: boolean`, `cycleNumber: number | null`, `correctGuessers: string[]`.
 
 Derived values (`isDrawer`, `role`, `wordChars`, `sortedPlayers`, podium groups) are computed with `useMemo` in the screen that needs them — not stored in the reducer.
 
@@ -132,9 +132,8 @@ Derived values (`isDrawer`, `role`, `wordChars`, `sortedPlayers`, podium groups)
 | `canvasCleared` | `(none)` | Handled in `Canvas.tsx` — clears 2D context. |
 | `guessBlocked` | `{ text }` | Handled in `GuessForm.tsx` — drawer cheat warning. |
 | `chatMessage` | `{ text, senderId, senderName }` | Appended in `ChatLog.tsx`. |
-| `guessResult` | `{ text, senderId, senderName, correct }` | Appended in `ChatLog.tsx` (green if correct). |
-| `roundEnd` | `{ correctWord, winnerName }` | `dispatch(ROUND_ENDED)` + auto-clear after 2.6s. |
-| `roundTimeout` | `{ word }` | `dispatch(ROUND_TIMEOUT)` + auto-clear after 2.6s. Reveals word with no winner. |
+| `guessResult` | `{ text?, senderId, senderName, correct, isSystemGuess?, isSelfConfirm? }` | Appended in `ChatLog.tsx` (green/checkmark if correct, silent if `isSystemGuess`). |
+| `roundResult` | `{ word, scores }` | `dispatch(ROUND_RESULT)` — triggers 5s ranking overlay. |
 | `gameFinished` | `{ players }` | `dispatch(GAME_FINISHED)` — transitions to `"finished"`. |
 | `playAgain` | `(none)` | `dispatch(PLAY_AGAIN)` — returns to `"gameLobby"`. |
 | `waitingForPlayers` | `{ count, min, reason? }` | `dispatch(WAITING_FOR_PLAYERS)`; notice toast if `reason === "player_left"`. |

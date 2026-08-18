@@ -52,6 +52,25 @@ export type RoundEndInfo = {
   winnerName: string;
 };
 
+/** A single player's point delta in the round-result overlay. */
+export type RoundResultScore = {
+  playerId: string;
+  name: string;
+  pointsEarned: number;
+};
+
+/** Payload for the `roundResult` socket event — replaces the old roundEnd / roundTimeout. */
+export type RoundResultPayload = {
+  /** The word that was being drawn. Empty string if drawer disconnected with no word. */
+  word: string;
+  /**
+   * All players' point deltas for this round, sorted descending by pointsEarned.
+   * Includes correct guessers, the drawer, zero-point non-guessers, and any
+   * disconnected correct guessers whose name was captured at guess time.
+   */
+  scores: RoundResultScore[];
+};
+
 export type JoinedRoomSuccessPayload = {
   roomId: string;
   isHost: boolean;
@@ -99,9 +118,28 @@ export type YourWordPayload = {
   word: string;
 };
 
+/** @deprecated — server no longer emits `roundEnd`; use RoundResultPayload instead. */
 export type RoundEndPayload = {
   correctWord: string;
   winnerName: string;
+};
+
+/**
+ * Payload for a `guessResult` socket event.
+ * For a correct guess, the server sends two variants:
+ *   - To the guesser: { text, senderId, senderName, correct: true, isSelfConfirm: true }
+ *   - To everyone else: { senderId, senderName, correct: true, isSystemGuess: true }  (no text)
+ * For an incorrect guess: { text, senderId, senderName, correct: false }
+ */
+export type GuessResultPayload = {
+  text?: string;
+  senderId: string;
+  senderName: string;
+  correct: boolean;
+  /** True when sent only to the guesser themselves as their own confirmation. */
+  isSelfConfirm?: boolean;
+  /** True when sent to all OTHER players as a word-leak-safe system notification. */
+  isSystemGuess?: boolean;
 };
 
 export type WaitingForPlayersPayload = {
