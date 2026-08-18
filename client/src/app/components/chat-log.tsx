@@ -17,7 +17,7 @@ type Props = {
 
 export const ChatLog = ({ players }: Props) => {
   const [entries, setEntries] = useState<LogEntry[]>([]);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleGuessResult = ({
@@ -133,11 +133,15 @@ export const ChatLog = ({ players }: Props) => {
   }, []);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = messagesRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [entries]);
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1">
+    <div
+      ref={messagesRef}
+      className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-2 space-y-1"
+    >
       {entries.map((entry) => {
         if (entry.type === "system") {
           return (
@@ -184,7 +188,6 @@ export const ChatLog = ({ players }: Props) => {
           </div>
         );
       })}
-      <div ref={bottomRef} />
     </div>
   );
 };

@@ -1,9 +1,9 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Canvas from "../app/components/canvas";
 import { ChatPanel } from "../app/components/chat-panel";
 import { MobileChatInputRow } from "../app/components/mobile-chat-input-row";
 import { PlayerList } from "../app/components/player-list";
-import { Timer } from "../app/components/timer";
+import { WordStrip } from "../app/components/word-strip";
 import { socket } from "../socket";
 import { useGame } from "../state/GameContext";
 import type { Role } from "../types";
@@ -25,6 +25,8 @@ export function GameScreen() {
     endsAt,
   } = state;
 
+  const [inputBarHeight, setInputBarHeight] = useState(0);
+
   const isDrawer = socket.id === drawerId;
   const role: Role = isDrawer ? "drawer" : "guesser";
 
@@ -36,8 +38,27 @@ export function GameScreen() {
     [isDrawer, word, wordLength],
   );
 
+  useEffect(() => {
+    const html = document.documentElement;
+    html.classList.add("game-screen-active");
+    window.scrollTo(0, 0);
+
+    return () => {
+      html.classList.remove("game-screen-active");
+    };
+  }, []);
+
+  const wordStripProps = {
+    wordChars,
+    wordLength,
+    isDrawer,
+    word,
+    endsAt,
+    durationSec: ROUND_DURATION_SEC,
+  };
+
   return (
-    <div className="h-screen w-full flex flex-col overflow-hidden">
+    <div className="h-dvh md:h-screen w-full flex flex-col overflow-hidden overscroll-none">
       {roundEndInfo && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-emerald-500 text-white font-extrabold text-sm px-6 py-3 rounded-full shadow-2xl max-w-xs text-center">
           {roundEndInfo.winnerName
@@ -52,50 +73,49 @@ export function GameScreen() {
         </div>
       )}
 
-      <div className="flex-1 min-h-0 p-2 md:p-3 grid grid-cols-12 gap-x-2 gap-y-0 md:gap-3 overflow-hidden">
-        <div className="col-span-6 order-2 md:col-span-3 md:order-1 h-[38vh] md:h-full min-h-0 overflow-hidden">
-          <PlayerList players={players} hostId={hostId} drawerId={drawerId} />
-        </div>
-
-        <div className="col-span-12 order-1 md:col-span-6 md:order-2 min-h-0 flex flex-col gap-2 overflow-hidden h-[52vh] md:h-full">
-          {/* Word strip — word on the left, timer ring on the right */}
-          <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-3 py-2 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-1.5 select-none flex-wrap">
-              {wordLength > 0 ? (
-                wordChars.map((ch, i) => (
-                  <span
-                    key={i}
-                    className={`font-black font-mono text-xl sm:text-2xl leading-none ${
-                      ch === "_" ? "text-white/60 px-0.5 pb-0.5" : "text-white"
-                    }`}
-                  >
-                    {ch}
-                  </span>
-                ))
-              ) : (
-                <span className="text-white/40 font-mono text-xl">—</span>
-              )}
-              {isDrawer && word && (
-                <span className="text-white/40 text-xs font-semibold uppercase tracking-widest ml-2 shrink-0">
-                  your word
-                </span>
-              )}
-            </div>
-
-            <Timer endsAt={endsAt} durationSec={ROUND_DURATION_SEC} />
-          </div>
-
+      {/* Mobile: flex column — canvas grows, players/chat fixed height, no page scroll */}
+      <div
+        className="md:hidden gap-y-2 flex flex-col flex-1 min-h-0 overflow-hidden px-2 pt-2"
+        style={
+          inputBarHeight > 0 ? { paddingBottom: inputBarHeight } : undefined
+        }
+      >
+        <div className="flex flex-col flex-1 min-h-0 overflow-hidden gap-2">
+          <WordStrip {...wordStripProps} />
           <div className="flex-1 min-h-0">
             <Canvas role={role} replayActions={replayActions} />
           </div>
         </div>
 
-        <div className="col-span-6 order-3 md:col-span-3 md:order-3 h-[38vh] md:h-full min-h-0 overflow-hidden">
+        <div className="shrink-0 h-[30vh] flex gap-x-2 min-h-0 overflow-hidden">
+          <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
+            <PlayerList players={players} hostId={hostId} drawerId={drawerId} />
+          </div>
+          <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
+            <ChatPanel role={role} players={players} />
+          </div>
+        </div>
+      </div>
+
+      {/* Desktop: 3-column grid */}
+      <div className="hidden md:grid flex-1 min-h-0 p-3 grid-cols-12 gap-3 overflow-hidden">
+        <div className="col-span-3 h-full min-h-0 overflow-hidden">
+          <PlayerList players={players} hostId={hostId} drawerId={drawerId} />
+        </div>
+
+        <div className="col-span-6 min-h-0 flex flex-col gap-2 overflow-hidden h-full">
+          <WordStrip {...wordStripProps} />
+          <div className="flex-1 min-h-0">
+            <Canvas role={role} replayActions={replayActions} />
+          </div>
+        </div>
+
+        <div className="col-span-3 h-full min-h-0 overflow-hidden">
           <ChatPanel role={role} players={players} />
         </div>
       </div>
 
-      <MobileChatInputRow role={role} />
+      <MobileChatInputRow role={role} onHeightChange={setInputBarHeight} />
     </div>
   );
 }

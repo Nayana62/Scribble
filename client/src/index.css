@@ -13,6 +13,19 @@ body {
   display: block; /* remove Vite's default centering flex */
 }
 
+/* Lock document scroll on the mobile game screen (GameScreen adds this class). */
+html.game-screen-active,
+html.game-screen-active body {
+  overflow: hidden;
+  height: 100dvh;
+  overscroll-behavior: none;
+}
+
+html.game-screen-active #root {
+  height: 100dvh;
+  overflow: hidden;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 :root {
