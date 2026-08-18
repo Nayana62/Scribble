@@ -15,7 +15,7 @@ import type {
   ActionReplayPayload,
   YourWordPayload,
   RoundResultPayload,
-  WaitingForPlayersPayload,
+  // WaitingForPlayersPayload,
   HostChangedPayload,
   NoticePayload,
   GameFinishedPayload,
@@ -85,10 +85,6 @@ function useGameSocketEvents(
       });
     });
 
-    socket.on("roundTimeout", ({ word }: RoundTimeoutPayload) => {
-      dispatch({ type: "ROUND_TIMEOUT", word });
-    });
-
     socket.on("actionReplay", ({ actions }: ActionReplayPayload) => {
       dispatch({ type: "ACTION_REPLAY", actions });
     });
@@ -117,16 +113,13 @@ function useGameSocketEvents(
       dispatch({ type: "WAITING_FOR_PLAYERS" });
     });
 
-    socket.on(
-      "hostChanged",
-      ({ newHostId }: HostChangedPayload) => {
-        dispatch({
-          type: "HOST_CHANGED",
-          newHostId,
-          socketId: socket.id,
-        });
-      },
-    );
+    socket.on("hostChanged", ({ newHostId }: HostChangedPayload) => {
+      dispatch({
+        type: "HOST_CHANGED",
+        newHostId,
+        socketId: socket.id,
+      });
+    });
 
     socket.on("notice", ({ message }: NoticePayload) => {
       showNotice(message, 3500);

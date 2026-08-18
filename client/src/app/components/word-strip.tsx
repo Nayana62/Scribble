@@ -14,7 +14,7 @@ export function WordStrip({
   wordChars,
   wordLength,
   isDrawer,
-  word,
+  // word,
   endsAt,
   durationSec,
   cycleNumber,
@@ -49,7 +49,9 @@ export function WordStrip({
               </span>
             ))
           ) : (
-            <span className="text-white/40 font-mono text-xl leading-none">—</span>
+            <span className="text-white/40 font-mono text-xl leading-none">
+              —
+            </span>
           )}
         </div>
       </div>
