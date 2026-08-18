@@ -25,6 +25,16 @@ const {
   pickWord,
 } = require("../game/words");
 
+const {
+  startRoundTimer,
+  clearRoundTimer,
+  getEndsAt,
+} = require("../game/timer");
+
+const {
+  ROUND_DURATION_SEC,
+} = require("../game/constants");
+
 module.exports = function(io) {
   io.on("connection", (socket) => {
     console.log(`Connected: ${socket.id}`);
@@ -40,14 +50,47 @@ module.exports = function(io) {
       });
     }
 
+    /**
+     * Consolidated round-ending logic.
+     *
+     * Cancels the running round timer unconditionally, then transitions to the
+     * next round based on the reason:
+     *
+     *  'allGuessed'        — caller already emitted `roundEnd` and awarded points;
+     *                        wait 2.5 s then start the next round.
+     *  'timeout'           — no correct guess; reveal the word via `roundTimeout`,
+     *                        wait 2.5 s then start the next round.
+     *  'drawerDisconnected'— drawer left; start the next round immediately.
+     *
+     * @param {object} room
+     * @param {string} roomId
+     * @param {'allGuessed'|'timeout'|'drawerDisconnected'} reason
+     */
+    function endRound(room, roomId, reason) {
+      // Always clear the round timer first — regardless of why we're ending.
+      clearRoundTimer(roomId);
+
+      if (reason === "timeout") {
+        // Reveal the word to everyone.
+        io.to(roomId).emit("roundTimeout", { word: room.word });
+
+        // Brief pause so players can read the revealed word, then begin next round.
+        setTimeout(() => startRound(roomId), 2500);
+
+      } else if (reason === "allGuessed") {
+        // `roundEnd` and points were already handled by the caller.
+        // Just schedule the transition.
+        setTimeout(() => startRound(roomId), 2500);
+
+      } else if (reason === "drawerDisconnected") {
+        // No delay — jump straight to the next round.
+        startRound(roomId);
+      }
+    }
+
     function startRound(roomId) {
       const room = rooms.get(roomId);
       if (!room) return;
-
-      if (room.roundTimer) {
-        clearTimeout(room.roundTimer);
-        room.roundTimer = null;
-      }
 
       if (room.players.size < MIN_PLAYERS) {
         room.status = "waiting";
@@ -94,11 +137,18 @@ module.exports = function(io) {
       const drawerPlayer = room.players.get(room.drawerId);
       const drawerName = drawerPlayer ? drawerPlayer.name : "Drawer";
 
-      // Tell everyone the round started (word shown as dashes to guessers)
+      // Start the authoritative round timer before broadcasting so that
+      // getEndsAt() is ready when we emit roundStart.
+      startRoundTimer(roomId, ROUND_DURATION_SEC, () => {
+        endRound(room, roomId, "timeout");
+      });
+
+      // Tell everyone the round started — include endsAt for the client timer.
       io.to(roomId).emit("roundStart", {
         drawerId: room.drawerId,
         drawerName,
         wordLength: room.wordLength,
+        endsAt: getEndsAt(roomId),
       });
 
       // Tell drawer their word privately
@@ -133,7 +183,7 @@ module.exports = function(io) {
 
       // Clean up empty rooms
       if (room.players.size === 0) {
-        if (room.roundTimer) clearTimeout(room.roundTimer);
+        clearRoundTimer(currentRoomId);
         rooms.delete(currentRoomId);
         return;
       }
@@ -153,10 +203,7 @@ module.exports = function(io) {
 
       // Below-minimum check
       if (room.players.size < MIN_PLAYERS) {
-        if (room.roundTimer) {
-          clearTimeout(room.roundTimer);
-          room.roundTimer = null;
-        }
+        clearRoundTimer(currentRoomId);
         room.status = "waiting";
         room.drawerId = null;
         room.word = null;
@@ -169,8 +216,8 @@ module.exports = function(io) {
           reason: "player_left",
         });
       } else if (socket.id === room.drawerId && room.status === "in_progress") {
-        // Drawer left mid-round but enough players remain → new round
-        startRound(currentRoomId);
+        // Drawer left mid-round but enough players remain → end round immediately.
+        endRound(room, currentRoomId, "drawerDisconnected");
       }
     }
 
@@ -257,12 +304,14 @@ module.exports = function(io) {
       broadcastPlayersUpdate(normalizedId);
 
       if (room.status === "in_progress") {
-        // Late joiner: drop straight into the active round
+        // Late joiner: drop straight into the active round.
+        // Include endsAt so the client timer starts with correct remaining time.
         const drawer = room.players.get(room.drawerId);
         socket.emit("roundStart", {
           drawerId: room.drawerId,
           drawerName: drawer ? drawer.name : "Drawer",
           wordLength: room.wordLength,
+          endsAt: getEndsAt(normalizedId),
         });
 
         // Replay stroke history so the canvas isn't blank
@@ -375,11 +424,9 @@ module.exports = function(io) {
 
         broadcastPlayersUpdate(roomId);
 
-        // Auto-start next round after 2.5 s
-        if (room.roundTimer) clearTimeout(room.roundTimer);
-        room.roundTimer = setTimeout(() => {
-          startRound(roomId);
-        }, 2500);
+        // Consolidate round-end transition through endRound so the round timer
+        // is cancelled before we schedule the next round.
+        endRound(room, roomId, "allGuessed");
       } else {
         io.to(roomId).emit("guessResult", {
           text: trimmed,
@@ -397,16 +444,14 @@ module.exports = function(io) {
       const room = rooms.get(roomId);
       if (!room) return;
 
+      clearRoundTimer(roomId);
+
       room.cyclesCompleted = 0;
       room.status = "waiting";
       room.drawerId = null;
       room.word = null;
       room.wordLength = 0;
       room.strokeHistory = [];
-      if (room.roundTimer) {
-        clearTimeout(room.roundTimer);
-        room.roundTimer = null;
-      }
 
       for (const p of room.players.values()) {
         p.score = 0;

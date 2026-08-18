@@ -21,6 +21,8 @@ export type GameState = {
   replayStrokes: Stroke[];
   roundEndInfo: RoundEndInfo | null;
   noticeMsg: string;
+  /** Epoch ms when the current round expires. Null when no round is active. */
+  endsAt: number | null;
 };
 
 export const initialGameState: GameState = {
@@ -38,6 +40,7 @@ export const initialGameState: GameState = {
   replayStrokes: [],
   roundEndInfo: null,
   noticeMsg: "",
+  endsAt: null,
 };
 
 export type Action =
@@ -55,10 +58,12 @@ export type Action =
       drawerId: string;
       drawerName: string;
       wordLength: number;
+      endsAt: number | null;
     }
   | { type: "STROKE_REPLAY"; strokes: Stroke[] }
   | { type: "YOUR_WORD"; word: string }
   | { type: "ROUND_ENDED"; correctWord: string; winnerName: string }
+  | { type: "ROUND_TIMEOUT"; word: string }
   | { type: "CLEAR_ROUND_END" }
   | { type: "WAITING_FOR_PLAYERS" }
   | {
@@ -111,6 +116,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
         roomStatus: "in_progress",
         replayStrokes: [],
         screen: "game",
+        endsAt: action.endsAt,
       };
 
     case "STROKE_REPLAY":
@@ -126,9 +132,22 @@ export function gameReducer(state: GameState, action: Action): GameState {
     case "ROUND_ENDED":
       return {
         ...state,
+        endsAt: null,
         roundEndInfo: {
           correctWord: action.correctWord,
           winnerName: action.winnerName,
+        },
+      };
+
+    // Timer expired with no correct guess — same state transition as ROUND_ENDED
+    // but the roundEndInfo shows the revealed word with no winner name.
+    case "ROUND_TIMEOUT":
+      return {
+        ...state,
+        endsAt: null,
+        roundEndInfo: {
+          correctWord: action.word,
+          winnerName: "",
         },
       };
 
@@ -143,6 +162,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
         word: "",
         wordLength: 0,
         screen: "gameLobby",
+        endsAt: null,
       };
 
     case "HOST_CHANGED": {
@@ -164,6 +184,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
         ...state,
         players: action.players,
         screen: "finished",
+        endsAt: null,
       };
 
     case "PLAY_AGAIN":
@@ -174,6 +195,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
         drawerId: null,
         word: "",
         wordLength: 0,
+        endsAt: null,
       };
 
     case "RESET_TO_HOME":
@@ -187,6 +209,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
         drawerId: null,
         word: "",
         wordLength: 0,
+        endsAt: null,
       };
 
     default:

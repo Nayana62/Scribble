@@ -51,7 +51,7 @@ function initRoom(roomId, hostId) {
     status: "waiting",
     cyclesCompleted: 0,
     strokeHistory: [],
-    roundTimer: null,
+    // Round timer state is managed externally in game/timer.js (keyed by roomId).
   };
   rooms.set(roomId, room);
   return room;

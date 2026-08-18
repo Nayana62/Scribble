@@ -40,6 +40,12 @@ export type RoundStartPayload = {
   drawerId: string;
   drawerName: string;
   wordLength: number;
+  /** Epoch ms when the current round expires. Null-safe on the client. */
+  endsAt: number | null;
+};
+
+export type RoundTimeoutPayload = {
+  word: string;
 };
 
 export type StrokeReplayPayload = {

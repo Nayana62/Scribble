@@ -79,10 +79,11 @@ Pure reducer — one `Action` type per socket event or state transition:
 | :--- | :--- |
 | `JOINED_ROOM_SUCCESS` | `joinedRoomSuccess` |
 | `PLAYERS_UPDATED` | `playersUpdate` |
-| `ROUND_STARTED` | `roundStart` |
+| `ROUND_STARTED` | `roundStart` — now carries `endsAt` |
 | `STROKE_REPLAY` | `strokeReplay` |
 | `YOUR_WORD` | `yourWord` |
 | `ROUND_ENDED` / `CLEAR_ROUND_END` | `roundEnd` (+ 2.6s timeout) |
+| `ROUND_TIMEOUT` / `CLEAR_ROUND_END` | `roundTimeout` (+ 2.6s timeout) |
 | `WAITING_FOR_PLAYERS` | `waitingForPlayers` |
 | `HOST_CHANGED` | `hostChanged` |
 | `SHOW_NOTICE` / `CLEAR_NOTICE` | `notice`, `playerLeft`, host-change toasts |
@@ -90,7 +91,7 @@ Pure reducer — one `Action` type per socket event or state transition:
 | `PLAY_AGAIN` | `playAgain` |
 | `RESET_TO_HOME` | `leaveRoom` handler |
 
-`GameState` fields: `screen`, `roomId`, `isHost`, `hostId`, `players`, `myColor`, `drawerId`, `drawerName`, `roomStatus`, `word`, `wordLength`, `replayStrokes`, `roundEndInfo`, `noticeMsg`.
+`GameState` fields: `screen`, `roomId`, `isHost`, `hostId`, `players`, `myColor`, `drawerId`, `drawerName`, `roomStatus`, `word`, `wordLength`, `replayStrokes`, `roundEndInfo`, `noticeMsg`, `endsAt: number | null` (epoch ms when the current round expires; `null` between rounds).
 
 Derived values (`isDrawer`, `role`, `wordChars`, `sortedPlayers`, podium groups) are computed with `useMemo` in the screen that needs them — not stored in the reducer.
 
@@ -119,7 +120,7 @@ Derived values (`isDrawer`, `role`, `wordChars`, `sortedPlayers`, podium groups)
 | `roomNotFound` | `{ message }` | `HomeScreen` local error state. |
 | `roomFull` | `{ message }` | `HomeScreen` local error state. |
 | `playersUpdate` | `{ players, hostId, status, drawerId }` | `dispatch(PLAYERS_UPDATED)` — updates roster, host, drawer; sets screen to `"game"` if in progress. |
-| `roundStart` | `{ drawerId, drawerName, wordLength }` | `dispatch(ROUND_STARTED)` — clears round state, sets screen to `"game"`. |
+| `roundStart` | `{ drawerId, drawerName, wordLength, endsAt }` | `dispatch(ROUND_STARTED)` — clears round state, sets `endsAt`, sets screen to `"game"`. |
 | `yourWord` | `{ word }` | `dispatch(YOUR_WORD)` — secret word for drawer only. |
 | `strokeBroadcast` | `{ prevX, prevY, x, y }` | Handled in `Canvas.tsx` — renders live stroke (guessers). |
 | `strokeReplay` | `{ strokes: [] }` | `dispatch(STROKE_REPLAY)` — late-joiner canvas replay. |
@@ -128,6 +129,7 @@ Derived values (`isDrawer`, `role`, `wordChars`, `sortedPlayers`, podium groups)
 | `chatMessage` | `{ text, senderId, senderName }` | Appended in `ChatLog.tsx`. |
 | `guessResult` | `{ text, senderId, senderName, correct }` | Appended in `ChatLog.tsx` (green if correct). |
 | `roundEnd` | `{ correctWord, winnerName }` | `dispatch(ROUND_ENDED)` + auto-clear after 2.6s. |
+| `roundTimeout` | `{ word }` | `dispatch(ROUND_TIMEOUT)` + auto-clear after 2.6s. Reveals word with no winner. |
 | `gameFinished` | `{ players }` | `dispatch(GAME_FINISHED)` — transitions to `"finished"`. |
 | `playAgain` | `(none)` | `dispatch(PLAY_AGAIN)` — returns to `"gameLobby"`. |
 | `waitingForPlayers` | `{ count, min, reason? }` | `dispatch(WAITING_FOR_PLAYERS)`; notice toast if `reason === "player_left"`. |

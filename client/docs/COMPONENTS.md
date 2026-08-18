@@ -115,3 +115,23 @@ Comprehensive documentation of React components, state ownership, and UI lifecyc
     role: "drawer" | "guesser" | null;
   };
   ```
+
+---
+
+### 11. `Timer.tsx`
+
+- **Role**: SVG circular countdown ring displayed in the word strip, to the right of the word characters. Shows remaining time numerically inside the ring.
+- **Props**:
+  ```typescript
+  type Props = {
+    endsAt: number | null;   // epoch ms from shared game state
+    durationSec: number;     // total round duration (80 by default)
+  };
+  ```
+- **Behavior**:
+  - Renders `null` when `endsAt` is `null` (between rounds / lobby).
+  - Maintains a local `setInterval` (100 ms tick) to compute `remaining = Math.max(0, endsAt - Date.now())`. Only `endsAt` lives in the reducer; the interval and `remaining` are local state.
+  - Ring color transitions: green (`#22c55e`) > 50 % remaining, yellow (`#eab308`) 20–50 %, red (`#ef4444`) < 20 %.
+  - Cleans up the interval on unmount and whenever `endsAt` changes.
+- **Late-joiner safe**: `endsAt` is hydrated from the server's `roundStart` payload (both normal start and late-join path), so the timer renders correct remaining time rather than a fresh 80 s countdown.
+

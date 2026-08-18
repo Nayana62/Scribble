@@ -14,6 +14,7 @@ import type {
   StrokeReplayPayload,
   YourWordPayload,
   RoundEndPayload,
+  RoundTimeoutPayload,
   WaitingForPlayersPayload,
   HostChangedPayload,
   NoticePayload,
@@ -54,7 +55,18 @@ function useGameSocketEvents(
     });
 
     socket.on("roundStart", (payload: RoundStartPayload) => {
-      dispatch({ type: "ROUND_STARTED", ...payload });
+      dispatch({
+        type: "ROUND_STARTED",
+        drawerId: payload.drawerId,
+        drawerName: payload.drawerName,
+        wordLength: payload.wordLength,
+        endsAt: payload.endsAt ?? null,
+      });
+    });
+
+    socket.on("roundTimeout", ({ word }: RoundTimeoutPayload) => {
+      dispatch({ type: "ROUND_TIMEOUT", word });
+      setTimeout(() => dispatch({ type: "CLEAR_ROUND_END" }), 2600);
     });
 
     socket.on("strokeReplay", ({ strokes }: StrokeReplayPayload) => {
@@ -117,6 +129,7 @@ function useGameSocketEvents(
       socket.off("strokeReplay");
       socket.off("yourWord");
       socket.off("roundEnd");
+      socket.off("roundTimeout");
       socket.off("waitingForPlayers");
       socket.off("hostChanged");
       socket.off("notice");
