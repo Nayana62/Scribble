@@ -64,14 +64,11 @@ export function PlayerList({ players, hostId, drawerId }: Props) {
                 </div>
               </div>
 
-              {/* Role icons — right side, icon-only, no text labels */}
-              <div className="flex items-center gap-0.5 shrink-0">
+              {/* Role icons — right side */}
+              <div className="flex items-center gap-1.5 shrink-0">
                 {isHost && (
-                  <span
-                    title="Host"
-                    className="text-base leading-none select-none"
-                  >
-                    👑
+                  <span className="bg-blue-500 text-white text-[9px] font-extrabold px-1.5 py-0.5 rounded-full uppercase tracking-wider select-none">
+                    Host
                   </span>
                 )}
                 {isDrawer && (

@@ -11,6 +11,7 @@ import type {
   JoinedRoomSuccessPayload,
   PlayersUpdatePayload,
   RoundStartPayload,
+  ChoosingStartedPayload,
   ActionReplayPayload,
   YourWordPayload,
   RoundEndPayload,
@@ -18,7 +19,6 @@ import type {
   WaitingForPlayersPayload,
   HostChangedPayload,
   NoticePayload,
-  PlayerLeftPayload,
   GameFinishedPayload,
 } from "../types";
 import {
@@ -60,13 +60,33 @@ function useGameSocketEvents(
         drawerId: payload.drawerId,
         drawerName: payload.drawerName,
         wordLength: payload.wordLength,
+        wordHint: payload.wordHint,
         endsAt: payload.endsAt ?? null,
+        cycleNumber: payload.cycleNumber,
+      });
+    });
+
+    socket.on("newCycleAnnouncement", (payload: { cycleNumber: number }) => {
+      dispatch({
+        type: "NEW_CYCLE_ANNOUNCEMENT",
+        cycleNumber: payload.cycleNumber,
+      });
+    });
+
+    socket.on("choosingStarted", (payload: ChoosingStartedPayload) => {
+      dispatch({
+        type: "CHOOSING_STARTED",
+        drawerId: payload.drawerId,
+        drawerName: payload.drawerName,
+        endsAt: payload.endsAt,
+        options: payload.options,
+        isNewCycle: payload.isNewCycle,
+        cycleNumber: payload.cycleNumber,
       });
     });
 
     socket.on("roundTimeout", ({ word }: RoundTimeoutPayload) => {
       dispatch({ type: "ROUND_TIMEOUT", word });
-      setTimeout(() => dispatch({ type: "CLEAR_ROUND_END" }), 2600);
     });
 
     socket.on("actionReplay", ({ actions }: ActionReplayPayload) => {
@@ -79,39 +99,25 @@ function useGameSocketEvents(
 
     socket.on("roundEnd", ({ correctWord, winnerName }: RoundEndPayload) => {
       dispatch({ type: "ROUND_ENDED", correctWord, winnerName });
-      setTimeout(() => dispatch({ type: "CLEAR_ROUND_END" }), 2600);
+    });
+
+    socket.on("waitingForPlayers", () => {
+      dispatch({ type: "WAITING_FOR_PLAYERS" });
     });
 
     socket.on(
-      "waitingForPlayers",
-      ({ count, min, reason }: WaitingForPlayersPayload) => {
-        dispatch({ type: "WAITING_FOR_PLAYERS" });
-        if (reason === "player_left") {
-          showNotice(
-            `A player left — game paused. Need ${min} players to continue (${count}/${min}).`,
-          );
-        }
-      },
-    );
-
-    socket.on(
       "hostChanged",
-      ({ newHostId, newHostName }: HostChangedPayload) => {
+      ({ newHostId }: HostChangedPayload) => {
         dispatch({
           type: "HOST_CHANGED",
           newHostId,
           socketId: socket.id,
         });
-        showNotice(`👑 ${newHostName} is now the host.`);
       },
     );
 
     socket.on("notice", ({ message }: NoticePayload) => {
       showNotice(message, 3500);
-    });
-
-    socket.on("playerLeft", ({ name }: PlayerLeftPayload) => {
-      showNotice(`${name} left the room.`, 3000);
     });
 
     socket.on("gameFinished", ({ players }: GameFinishedPayload) => {
@@ -126,6 +132,8 @@ function useGameSocketEvents(
       socket.off("joinedRoomSuccess");
       socket.off("playersUpdate");
       socket.off("roundStart");
+      socket.off("newCycleAnnouncement");
+      socket.off("choosingStarted");
       socket.off("actionReplay");
       socket.off("yourWord");
       socket.off("roundEnd");
@@ -133,7 +141,6 @@ function useGameSocketEvents(
       socket.off("waitingForPlayers");
       socket.off("hostChanged");
       socket.off("notice");
-      socket.off("playerLeft");
       socket.off("gameFinished");
       socket.off("playAgain");
     };
@@ -168,6 +175,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useGame(): GameContextValue {
   const ctx = useContext(GameContext);
   if (!ctx) {

@@ -14,9 +14,15 @@ type Props = {
   role: "drawer" | "guesser" | null;
   /** Full ordered action log for late-joiner replay (from shared game state). */
   replayActions?: DrawAction[];
+  /** When false, drawing input is disabled (e.g. during word-choosing phase). */
+  canDraw?: boolean;
 };
 
-export default function Canvas({ role, replayActions: replayActionsProp = [] }: Props) {
+export default function Canvas({
+  role,
+  replayActions: replayActionsProp = [],
+  canDraw = true,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // ── Drawing input state (local to this component, not in the reducer) ────────
@@ -108,7 +114,7 @@ export default function Canvas({ role, replayActions: replayActionsProp = [] }: 
   // ── Mouse Handlers ────────────────────────────────────────────────────────────
 
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (role !== "drawer") return;
+    if (role !== "drawer" || !canDraw) return;
     const { x, y } = getCanvasCoords(e.clientX, e.clientY);
 
     if (activeTool === "fill") {
@@ -129,7 +135,7 @@ export default function Canvas({ role, replayActions: replayActionsProp = [] }: 
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (role !== "drawer" || activeTool !== "pencil" || !isDrawing.current) return;
+    if (role !== "drawer" || !canDraw || activeTool !== "pencil" || !isDrawing.current) return;
     const { x, y } = getCanvasCoords(e.clientX, e.clientY);
     const pts = currentStrokePoints.current;
     const prev = pts[pts.length - 1];
@@ -174,7 +180,7 @@ export default function Canvas({ role, replayActions: replayActionsProp = [] }: 
   // ── Touch Handlers ────────────────────────────────────────────────────────────
 
   const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
-    if (role !== "drawer") return;
+    if (role !== "drawer" || !canDraw) return;
     const touch = e.touches[0];
     if (!touch) return;
     const { x, y } = getCanvasCoords(touch.clientX, touch.clientY);
@@ -195,7 +201,7 @@ export default function Canvas({ role, replayActions: replayActionsProp = [] }: 
   };
 
   const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
-    if (role !== "drawer" || activeTool !== "pencil" || !isDrawing.current) return;
+    if (role !== "drawer" || !canDraw || activeTool !== "pencil" || !isDrawing.current) return;
     const touch = e.touches[0];
     if (!touch) return;
     const { x, y } = getCanvasCoords(touch.clientX, touch.clientY);
@@ -295,11 +301,11 @@ export default function Canvas({ role, replayActions: replayActionsProp = [] }: 
 
   // ── Derived cursor style ──────────────────────────────────────────────────────
   const canvasCursor =
-    role !== "drawer"
+    role !== "drawer" || !canDraw
       ? "default"
       : activeTool === "fill"
         ? "crosshair"
-        : "crosshair"; // pencil also uses crosshair for precision; can switch to "url(...) pencil" later
+        : "crosshair";
 
   return (
     <div className="flex flex-col h-full bg-white/10 backdrop-blur-sm rounded-xl border border-white/20 overflow-hidden gap-0">
@@ -321,8 +327,8 @@ export default function Canvas({ role, replayActions: replayActionsProp = [] }: 
         />
       </div>
 
-      {/* Toolbar — drawer only */}
-      {role === "drawer" && (
+      {/* Toolbar — drawer only, hidden during choosing phase */}
+      {role === "drawer" && canDraw && (
         <div className="shrink-0 px-2 pt-1.5 pb-2">
           <Toolbar
             activeColor={activeColor}

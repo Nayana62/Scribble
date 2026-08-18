@@ -79,8 +79,10 @@ Pure reducer — one `Action` type per socket event or state transition:
 | :--- | :--- |
 | `JOINED_ROOM_SUCCESS` | `joinedRoomSuccess` |
 | `PLAYERS_UPDATED` | `playersUpdate` |
-| `ROUND_STARTED` | `roundStart` — now carries `endsAt` |
-| `STROKE_REPLAY` | `strokeReplay` |
+| `NEW_CYCLE_ANNOUNCEMENT` | `newCycleAnnouncement` |
+| `CHOOSING_STARTED` | `choosingStarted` |
+| `ROUND_STARTED` | `roundStart` — now carries `endsAt`, `wordHint`, `cycleNumber` |
+| `ACTION_REPLAY` | `actionReplay` |
 | `YOUR_WORD` | `yourWord` |
 | `ROUND_ENDED` / `CLEAR_ROUND_END` | `roundEnd` (+ 2.6s timeout) |
 | `ROUND_TIMEOUT` / `CLEAR_ROUND_END` | `roundTimeout` (+ 2.6s timeout) |
@@ -91,7 +93,7 @@ Pure reducer — one `Action` type per socket event or state transition:
 | `PLAY_AGAIN` | `playAgain` |
 | `RESET_TO_HOME` | `leaveRoom` handler |
 
-`GameState` fields: `screen`, `roomId`, `isHost`, `hostId`, `players`, `myColor`, `drawerId`, `drawerName`, `roomStatus`, `word`, `wordLength`, `replayStrokes`, `roundEndInfo`, `noticeMsg`, `endsAt: number | null` (epoch ms when the current round expires; `null` between rounds).
+`GameState` fields: `screen`, `roomId`, `isHost`, `hostId`, `players`, `myColor`, `drawerId`, `drawerName`, `roomStatus`, `word`, `wordLength`, `wordHint`, `replayActions`, `roundEndInfo`, `noticeMsg`, `endsAt: number | null`, `roundPhase: RoundPhase | null`, `choosingEndsAt: number | null`, `wordOptions: string[]`, `isNewCycle: boolean`, `cycleNumber: number | null`.
 
 Derived values (`isDrawer`, `role`, `wordChars`, `sortedPlayers`, podium groups) are computed with `useMemo` in the screen that needs them — not stored in the reducer.
 
@@ -120,7 +122,9 @@ Derived values (`isDrawer`, `role`, `wordChars`, `sortedPlayers`, podium groups)
 | `roomNotFound` | `{ message }` | `HomeScreen` local error state. |
 | `roomFull` | `{ message }` | `HomeScreen` local error state. |
 | `playersUpdate` | `{ players, hostId, status, drawerId }` | `dispatch(PLAYERS_UPDATED)` — updates roster, host, drawer; sets screen to `"game"` if in progress. |
-| `roundStart` | `{ drawerId, drawerName, wordLength, endsAt }` | `dispatch(ROUND_STARTED)` — clears round state, sets `endsAt`, sets screen to `"game"`. |
+| `newCycleAnnouncement` | `{ cycleNumber }` | `dispatch(NEW_CYCLE_ANNOUNCEMENT)` — round announcement phase. |
+| `choosingStarted` | `{ drawerId, drawerName, endsAt, options?, cycleNumber }` | `dispatch(CHOOSING_STARTED)` — word choice phase. |
+| `roundStart` | `{ drawerId, drawerName, wordLength, wordHint, endsAt, cycleNumber }` | `dispatch(ROUND_STARTED)` — clears round state, sets `endsAt`, sets screen to `"game"`. |
 | `yourWord` | `{ word }` | `dispatch(YOUR_WORD)` — secret word for drawer only. |
 | `strokeBroadcast` | `{ prevX, prevY, x, y, color, width }` | Handled in `Canvas.tsx` — renders live stroke (guessers). |
 | `drawAction` | `{ type: 'stroke'\|'fill'\|'clear'\|'undo', ...payload }` | Handled in `Canvas.tsx` — handles stroke, fill, clear, and undo actions. |

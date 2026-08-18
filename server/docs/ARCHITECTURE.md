@@ -22,8 +22,10 @@ Detailed architectural specifications for the Scribble Node.js + Socket.IO serve
                    ┌─────────────────────────────────────────┐
                    │       State: "in_progress" (Round 1)    │
                    │  - Pick Drawer (Sequential Rotation)    │
-                   │  - Pick Word & Clear actionLog      │
-                   │  - Start 80s round timer                │
+                   │  - Phase: "announcement" (3s, optional) │
+                   │  - Phase: "choosing" (15s)              │
+                   │  - Pick Word & Clear actionLog          │
+                   │  - Phase: "drawing" (80s round timer)   │
                    │  - Broadcast `roundStart` & `yourWord`  │
                    └────────────────────┬────────────────────┘
                                         │
@@ -66,7 +68,12 @@ Each room state object in the internal `Map` holds:
   word: string | null,          // target word (plain text)
   wordLength: number,           // target word length
   status: "waiting" | "in_progress" | "finished",
+  roundPhase: "announcement" | "choosing" | "drawing" | null,
   cyclesCompleted: number,      // count of full sequential rotations completed
+  announcementCycleNumber: number,
+  choosingOptions: string[] | null,
+  usedWords: string[],
+  shouldResetUsedPoolOnLock: boolean,
   actionLog: object[],          // ordered drawing action log: { type:'stroke'|'fill'|'clear', ...payload }
                                  // used for late-joiner canvas replay; undo pops the last entry.
   // Round timer state is managed externally in game/timer.js (keyed by roomId).
@@ -117,7 +124,9 @@ The server is decoupled into separate modules separating socket networking from 
 
 | Event | Payload | When |
 | :--- | :--- | :--- |
-| `roundStart` | `{ drawerId, drawerName, wordLength, endsAt }` | New round begins (or late joiner syncs) |
+| `newCycleAnnouncement` | `{ cycleNumber }` | Round announcement phase begins |
+| `choosingStarted` | `{ drawerId, drawerName, endsAt, options?, cycleNumber }` | Drawer choosing phase begins |
+| `roundStart` | `{ drawerId, drawerName, wordLength, wordHint, endsAt, cycleNumber }` | New round begins (drawing phase) |
 | `roundEnd` | `{ correctWord, winnerId, winnerName }` | A correct guess ends the round |
 | `roundTimeout` | `{ word }` | 80s expires with no correct guess |
 | `gameFinished` | `{ players }` | All cycles completed |

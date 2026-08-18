@@ -81,7 +81,7 @@ Comprehensive documentation of React components, state ownership, and UI lifecyc
 
 ### 8. `PlayerList.tsx`
 
-- **Role**: Renders room player list, score indicator, color avatars, and status icons (👑 for host, ✏️ for current drawer). Uses pure status icons instead of text labels.
+- **Role**: Renders room player list, score indicator, color avatars, and status icons (Host badge for host, ✏️ for current drawer). Uses pure status icons instead of text labels.
 - **Props**:
   ```typescript
   type Props = {

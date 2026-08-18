@@ -11,14 +11,14 @@ A real-time multiplayer drawing and guessing game. One player draws a secret wor
 - Create private rooms with short room codes
 - Share invite links (`?room=CODE`) — friends land directly in the join flow
 - Up to 12 players per room; 2 players minimum to play
-- Host starts the game; crown transfers automatically if host disconnects
+- Host starts the game; Host badge transfers automatically if host disconnects
 - Player names persist in `localStorage` between visits
 
 ### Drawing & Guessing
 
 - Real-time canvas with mouse and touch drawing
 - Sequential turn rotation — everyone draws in join order
-- Secret word shown only to the active drawer
+- Drawer chooses a secret word from 3 options
 - Live stroke broadcast to all guessers
 - Canvas clear button for the drawer
 - Drawer cannot type the secret word in chat (guess blocking)
@@ -37,7 +37,7 @@ A real-time multiplayer drawing and guessing game. One player draws a secret wor
 - Four screens: Home → Lobby → Game → End
 - Responsive skribbl.io-style layout (stacked on mobile, 3-column on desktop)
 - Color-coded player avatars and chat names
-- Live player list with host crown and drawer badge
+- Live player list with host badge and drawer badge
 - Chat log with guesses, system messages, and join/leave notifications
 
 ---

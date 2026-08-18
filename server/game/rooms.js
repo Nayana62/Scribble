@@ -56,7 +56,13 @@ function initRoom(roomId, hostId) {
      * Used for late-joiner canvas replay. Undo pops the last entry instead of appending.
      */
     actionLog: [],
-    // Round timer state is managed externally in game/timer.js (keyed by roomId).
+    /** Words locked in this game — reset on play again. */
+    usedWords: [],
+    /** @type {'choosing'|'drawing'|null} */
+    roundPhase: null,
+    /** Server-only options for the current choosing phase (never broadcast). */
+    choosingOptions: null,
+    // Timer state is managed externally in game/timer.js (keyed by roomId + kind).
   };
   rooms.set(roomId, room);
   return room;

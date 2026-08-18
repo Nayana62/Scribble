@@ -244,7 +244,42 @@ function pickWord() {
   return WORDS[Math.floor(Math.random() * WORDS.length)];
 }
 
+/**
+ * Pick `count` unique word options, excluding words in `usedWords`.
+ * If fewer than `count` unused words remain, signals that the used pool
+ * should be reset before recording the eventual choice.
+ *
+ * @param {string[]} usedWords
+ * @param {number} [count=3]
+ * @returns {{ options: string[]; shouldResetUsedPool: boolean }}
+ */
+function pickWordOptions(usedWords, count = 3) {
+  const pickUnique = (pool, n) => {
+    const copy = [...pool];
+    const result = [];
+    while (result.length < n && copy.length > 0) {
+      const idx = Math.floor(Math.random() * copy.length);
+      result.push(copy.splice(idx, 1)[0]);
+    }
+    return result;
+  };
+
+  let available = WORDS.filter((w) => !usedWords.includes(w));
+  let shouldResetUsedPool = false;
+
+  if (available.length < count) {
+    shouldResetUsedPool = true;
+    available = [...WORDS];
+  }
+
+  return {
+    options: pickUnique(available, count),
+    shouldResetUsedPool,
+  };
+}
+
 module.exports = {
   WORDS,
   pickWord,
+  pickWordOptions,
 };

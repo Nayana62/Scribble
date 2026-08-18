@@ -69,6 +69,36 @@ export const ChatLog = ({ players }: Props) => {
       ]);
     };
 
+    const handleRoundTimeout = ({ word }: { word: string }) => {
+      setEntries((prev) => [
+        ...prev,
+        {
+          id: Math.random().toString(),
+          type: "round_end",
+          text: `⏰ Time's up! The word was "${word}".`,
+        },
+      ]);
+    };
+
+    const handleWaitingForPlayers = ({
+      count,
+      min,
+      reason,
+    }: {
+      count: number;
+      min: number;
+      reason?: string;
+    }) => {
+      const text =
+        reason === "player_left"
+          ? `A player left — game paused. Need ${min} players to continue (${count}/${min}).`
+          : `Waiting for players (${count}/${min})…`;
+      setEntries((prev) => [
+        ...prev,
+        { id: Math.random().toString(), type: "system", text },
+      ]);
+    };
+
     const handleRoundStart = ({ drawerName }: { drawerName: string }) => {
       setEntries((prev) => [
         ...prev,
@@ -116,7 +146,9 @@ export const ChatLog = ({ players }: Props) => {
     socket.on("guessResult", handleGuessResult);
     socket.on("chatMessage", handleChatMessage);
     socket.on("roundEnd", handleRoundEnd);
+    socket.on("roundTimeout", handleRoundTimeout);
     socket.on("roundStart", handleRoundStart);
+    socket.on("waitingForPlayers", handleWaitingForPlayers);
     socket.on("hostChanged", handleHostChanged);
     socket.on("playerJoined", handlePlayerJoined);
     socket.on("playerLeft", handlePlayerLeft);
@@ -125,7 +157,9 @@ export const ChatLog = ({ players }: Props) => {
       socket.off("guessResult", handleGuessResult);
       socket.off("chatMessage", handleChatMessage);
       socket.off("roundEnd", handleRoundEnd);
+      socket.off("roundTimeout", handleRoundTimeout);
       socket.off("roundStart", handleRoundStart);
+      socket.off("waitingForPlayers", handleWaitingForPlayers);
       socket.off("hostChanged", handleHostChanged);
       socket.off("playerJoined", handlePlayerJoined);
       socket.off("playerLeft", handlePlayerLeft);

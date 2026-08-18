@@ -11,6 +11,8 @@ export type Role = "drawer" | "guesser";
 
 export type RoomStatus = "waiting" | "in_progress";
 
+export type RoundPhase = "announcement" | "choosing" | "drawing";
+
 /** A single point in a freehand stroke. */
 export type Point = { x: number; y: number };
 
@@ -67,8 +69,21 @@ export type RoundStartPayload = {
   drawerId: string;
   drawerName: string;
   wordLength: number;
+  wordHint: string;
   /** Epoch ms when the current round expires. Null-safe on the client. */
   endsAt: number | null;
+  cycleNumber: number;
+};
+
+export type ChoosingStartedPayload = {
+  drawerId: string;
+  drawerName: string;
+  endsAt: number;
+  /** Present for the drawer only — never sent to other clients. */
+  options?: string[];
+  /** Omitted for late joiners — show round announcement when true. */
+  isNewCycle?: boolean;
+  cycleNumber?: number;
 };
 
 export type RoundTimeoutPayload = {

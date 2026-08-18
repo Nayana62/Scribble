@@ -2,6 +2,7 @@ import type {
   Player,
   Screen,
   RoomStatus,
+  RoundPhase,
   DrawAction,
   RoundEndInfo,
 } from "../types";
@@ -18,12 +19,22 @@ export type GameState = {
   roomStatus: RoomStatus;
   word: string;
   wordLength: number;
+  wordHint: string;
   /** Full ordered action log for late-joiner canvas replay. */
   replayActions: DrawAction[];
   roundEndInfo: RoundEndInfo | null;
   noticeMsg: string;
   /** Epoch ms when the current round expires. Null when no round is active. */
   endsAt: number | null;
+  /** Current in-round phase — null between rounds / in lobby. */
+  roundPhase: RoundPhase | null;
+  /** Epoch ms when the choosing phase expires. Null during drawing / between rounds. */
+  choosingEndsAt: number | null;
+  /** Drawer-only word options during choosing phase. */
+  wordOptions: string[];
+  /** True at cycle boundaries — triggers "Round N" announcement before choosing UI. */
+  isNewCycle: boolean;
+  cycleNumber: number | null;
 };
 
 export const initialGameState: GameState = {
@@ -38,14 +49,25 @@ export const initialGameState: GameState = {
   roomStatus: "waiting",
   word: "",
   wordLength: 0,
+  wordHint: "",
   replayActions: [],
   roundEndInfo: null,
   noticeMsg: "",
   endsAt: null,
+  roundPhase: null,
+  choosingEndsAt: null,
+  wordOptions: [],
+  isNewCycle: false,
+  cycleNumber: null,
 };
 
 export type Action =
-  | { type: "JOINED_ROOM_SUCCESS"; roomId: string; isHost: boolean; color: string }
+  | {
+      type: "JOINED_ROOM_SUCCESS";
+      roomId: string;
+      isHost: boolean;
+      color: string;
+    }
   | {
       type: "PLAYERS_UPDATED";
       players: Player[];
@@ -55,11 +77,26 @@ export type Action =
       socketId: string | undefined;
     }
   | {
+      type: "NEW_CYCLE_ANNOUNCEMENT";
+      cycleNumber: number;
+    }
+  | {
+      type: "CHOOSING_STARTED";
+      drawerId: string;
+      drawerName: string;
+      endsAt: number;
+      options?: string[];
+      isNewCycle?: boolean;
+      cycleNumber?: number;
+    }
+  | {
       type: "ROUND_STARTED";
       drawerId: string;
       drawerName: string;
       wordLength: number;
+      wordHint: string;
       endsAt: number | null;
+      cycleNumber: number;
     }
   | { type: "ACTION_REPLAY"; actions: DrawAction[] }
   | { type: "YOUR_WORD"; word: string }
@@ -106,13 +143,57 @@ export function gameReducer(state: GameState, action: Action): GameState {
       return next;
     }
 
+    case "NEW_CYCLE_ANNOUNCEMENT":
+      return {
+        ...state,
+        roundPhase: "announcement",
+        cycleNumber: action.cycleNumber,
+        isNewCycle: true,
+        choosingEndsAt: null,
+        wordOptions: [],
+        word: "",
+        wordHint: "",
+        wordLength: 0,
+        endsAt: null,
+        roundEndInfo: null,
+        replayActions: [],
+        roomStatus: "in_progress",
+        screen: "game",
+      };
+
+    case "CHOOSING_STARTED":
+      return {
+        ...state,
+        drawerId: action.drawerId,
+        drawerName: action.drawerName,
+        roundPhase: "choosing",
+        choosingEndsAt: action.endsAt,
+        wordOptions: action.options ?? [],
+        isNewCycle: false,
+        cycleNumber: action.cycleNumber ?? state.cycleNumber,
+        word: "",
+        wordLength: 0,
+        wordHint: "",
+        endsAt: null,
+        roundEndInfo: null,
+        replayActions: [],
+        roomStatus: "in_progress",
+        screen: "game",
+      };
+
     case "ROUND_STARTED":
       return {
         ...state,
         drawerId: action.drawerId,
         drawerName: action.drawerName,
         wordLength: action.wordLength,
+        wordHint: action.wordHint,
         word: "",
+        roundPhase: "drawing",
+        choosingEndsAt: null,
+        wordOptions: [],
+        isNewCycle: false,
+        cycleNumber: action.cycleNumber,
         roundEndInfo: null,
         roomStatus: "in_progress",
         replayActions: [],
@@ -128,12 +209,18 @@ export function gameReducer(state: GameState, action: Action): GameState {
         ...state,
         word: action.word,
         wordLength: action.word.length,
+        wordHint: action.word,
       };
 
     case "ROUND_ENDED":
       return {
         ...state,
         endsAt: null,
+        roundPhase: null,
+        choosingEndsAt: null,
+        wordOptions: [],
+        isNewCycle: false,
+        cycleNumber: null,
         roundEndInfo: {
           correctWord: action.correctWord,
           winnerName: action.winnerName,
@@ -144,6 +231,11 @@ export function gameReducer(state: GameState, action: Action): GameState {
       return {
         ...state,
         endsAt: null,
+        roundPhase: null,
+        choosingEndsAt: null,
+        wordOptions: [],
+        isNewCycle: false,
+        cycleNumber: null,
         roundEndInfo: {
           correctWord: action.word,
           winnerName: "",
@@ -160,8 +252,14 @@ export function gameReducer(state: GameState, action: Action): GameState {
         drawerId: null,
         word: "",
         wordLength: 0,
+        wordHint: "",
         screen: "gameLobby",
         endsAt: null,
+        roundPhase: null,
+        choosingEndsAt: null,
+        wordOptions: [],
+        isNewCycle: false,
+        cycleNumber: null,
       };
 
     case "HOST_CHANGED": {
@@ -184,6 +282,11 @@ export function gameReducer(state: GameState, action: Action): GameState {
         players: action.players,
         screen: "finished",
         endsAt: null,
+        roundPhase: null,
+        choosingEndsAt: null,
+        wordOptions: [],
+        isNewCycle: false,
+        cycleNumber: null,
       };
 
     case "PLAY_AGAIN":
@@ -194,7 +297,13 @@ export function gameReducer(state: GameState, action: Action): GameState {
         drawerId: null,
         word: "",
         wordLength: 0,
+        wordHint: "",
         endsAt: null,
+        roundPhase: null,
+        choosingEndsAt: null,
+        wordOptions: [],
+        isNewCycle: false,
+        cycleNumber: null,
       };
 
     case "RESET_TO_HOME":
@@ -208,7 +317,13 @@ export function gameReducer(state: GameState, action: Action): GameState {
         drawerId: null,
         word: "",
         wordLength: 0,
+        wordHint: "",
         endsAt: null,
+        roundPhase: null,
+        choosingEndsAt: null,
+        wordOptions: [],
+        isNewCycle: false,
+        cycleNumber: null,
       };
 
     default:

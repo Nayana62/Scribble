@@ -53,7 +53,14 @@ export function Timer({ endsAt, durationSec }: Props) {
     };
   }, [endsAt]);
 
-  if (endsAt === null) return null;
+  if (endsAt === null) {
+    return (
+      <div
+        className="shrink-0"
+        style={{ width: VIEWBOX_SIZE, height: VIEWBOX_SIZE }}
+      />
+    );
+  }
 
   const totalMs = durationSec * 1000;
   const fraction = totalMs > 0 ? remaining / totalMs : 0;

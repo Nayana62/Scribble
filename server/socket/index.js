@@ -13,6 +13,7 @@ const {
 const {
   nextDrawer,
   reassignHost,
+  isFirstTurnOfCycle,
 } = require("../game/turnOrder");
 
 const {
@@ -22,10 +23,12 @@ const {
 } = require("../game/scoring");
 
 const {
-  pickWord,
+  pickWordOptions,
 } = require("../game/words");
 
 const {
+  startTimer,
+  clearTimer,
   startRoundTimer,
   clearRoundTimer,
   getEndsAt,
@@ -33,6 +36,7 @@ const {
 
 const {
   ROUND_DURATION_SEC,
+  CHOOSING_DURATION_SEC,
 } = require("../game/constants");
 
 module.exports = function(io) {
@@ -67,8 +71,10 @@ module.exports = function(io) {
      * @param {'allGuessed'|'timeout'|'drawerDisconnected'} reason
      */
     function endRound(room, roomId, reason) {
-      // Always clear the round timer first — regardless of why we're ending.
+      // Always clear all timers first — regardless of why we're ending.
       clearRoundTimer(roomId);
+      room.roundPhase = null;
+      room.choosingOptions = null;
 
       if (reason === "timeout") {
         io.to(roomId).emit("roundTimeout", { word: room.word });
@@ -80,16 +86,161 @@ module.exports = function(io) {
       }
     }
 
+    /**
+     * Lock in a word and start the draw round. Single path for drawer pick,
+     * early pick, and auto-pick on choosing timeout.
+     *
+     * @param {object} room
+     * @param {string} roomId
+     * @param {string} word
+     */
+    function lockWordAndStartDrawing(room, roomId, word) {
+      if (!room.choosingOptions || !room.choosingOptions.includes(word)) {
+        return;
+      }
+
+      clearTimer(roomId, "choosing");
+
+      if (room.shouldResetUsedPoolOnLock) {
+        room.usedWords = [];
+        room.shouldResetUsedPoolOnLock = false;
+      }
+
+      room.word = word;
+      room.wordLength = word.length;
+      room.usedWords.push(word);
+      room.choosingOptions = null;
+      room.roundPhase = "drawing";
+      room.actionLog = [];
+
+      const drawerPlayer = room.players.get(room.drawerId);
+      const drawerName = drawerPlayer ? drawerPlayer.name : "Drawer";
+
+      startRoundTimer(roomId, ROUND_DURATION_SEC, () => {
+        endRound(room, roomId, "timeout");
+      });
+
+      const wordHint = room.word.split("").map(c => c === " " ? " " : "_").join("");
+
+      io.to(roomId).emit("roundStart", {
+        drawerId: room.drawerId,
+        drawerName,
+        wordLength: room.wordLength,
+        wordHint,
+        endsAt: getEndsAt(roomId, "drawing"),
+        cycleNumber: room.cyclesCompleted + 1,
+      });
+
+      io.to(room.drawerId).emit("yourWord", { word: room.word });
+      io.to(roomId).emit("canvasCleared");
+      broadcastPlayersUpdate(roomId);
+    }
+
+    function triggerChoosingPhase(roomId, room) {
+      room.roundPhase = "choosing";
+
+      const { options, shouldResetUsedPool } = pickWordOptions(room.usedWords, 3);
+      room.choosingOptions = options;
+      room.shouldResetUsedPoolOnLock = shouldResetUsedPool;
+
+      const drawerPlayer = room.players.get(room.drawerId);
+      const drawerName = drawerPlayer ? drawerPlayer.name : "Drawer";
+
+      startTimer(roomId, "choosing", CHOOSING_DURATION_SEC, () => {
+        const current = rooms.get(roomId);
+        if (!current || current.roundPhase !== "choosing") return;
+        const autoWord =
+          current.choosingOptions[
+            Math.floor(Math.random() * current.choosingOptions.length)
+          ];
+        lockWordAndStartDrawing(current, roomId, autoWord);
+      });
+
+      const choosingEndsAt = getEndsAt(roomId, "choosing");
+
+      io.to(room.drawerId).emit("choosingStarted", {
+        drawerId: room.drawerId,
+        drawerName,
+        options,
+        endsAt: choosingEndsAt,
+        cycleNumber: room.cyclesCompleted + 1,
+      });
+
+      io.to(roomId).except(room.drawerId).emit("choosingStarted", {
+        drawerId: room.drawerId,
+        drawerName,
+        endsAt: choosingEndsAt,
+        cycleNumber: room.cyclesCompleted + 1,
+      });
+
+      io.to(roomId).emit("canvasCleared");
+      broadcastPlayersUpdate(roomId);
+    }
+
+    function startChoosingPhase(roomId) {
+      const room = rooms.get(roomId);
+      if (!room) return;
+
+      room.status = "in_progress";
+      room.actionLog = [];
+      room.word = null;
+      room.wordLength = 0;
+
+      const isNewCycle = isFirstTurnOfCycle(room, room.drawerId);
+      if (isNewCycle) {
+        room.roundPhase = "announcement";
+        room.announcementCycleNumber = room.cyclesCompleted + 1;
+
+        io.to(roomId).emit("newCycleAnnouncement", {
+          cycleNumber: room.announcementCycleNumber,
+        });
+
+        io.to(roomId).emit("canvasCleared");
+        broadcastPlayersUpdate(roomId);
+
+        const drawerIdOnAnnouncement = room.drawerId;
+        setTimeout(() => {
+          const current = rooms.get(roomId);
+          if (
+            !current ||
+            current.status !== "in_progress" ||
+            current.roundPhase !== "announcement" ||
+            current.drawerId !== drawerIdOnAnnouncement
+          ) {
+            return;
+          }
+          triggerChoosingPhase(roomId, current);
+        }, 3000);
+      } else {
+        triggerChoosingPhase(roomId, room);
+      }
+    }
+
+    /**
+     * Drawer left during choosing — skip straight to next turn's choosing phase.
+     */
+    function skipChoosing(room, roomId) {
+      clearTimer(roomId, "choosing");
+      room.roundPhase = null;
+      room.choosingOptions = null;
+      room.word = null;
+      room.wordLength = 0;
+      startRound(roomId);
+    }
+
     function startRound(roomId) {
       const room = rooms.get(roomId);
       if (!room) return;
 
       if (room.players.size < MIN_PLAYERS) {
+        clearRoundTimer(roomId);
         room.status = "waiting";
         room.drawerId = null;
         room.word = null;
         room.wordLength = 0;
         room.actionLog = [];
+        room.roundPhase = null;
+        room.choosingOptions = null;
         io.to(roomId).emit("canvasCleared");
         io.to(roomId).emit("waitingForPlayers", {
           count: room.players.size,
@@ -99,17 +250,17 @@ module.exports = function(io) {
         return;
       }
 
-      room.status = "in_progress";
-      room.actionLog = []; // fresh canvas each round
-
       checkCycleCompleted(room, room.drawerId);
 
       if (isGameFinished(room)) {
+        clearRoundTimer(roomId);
         room.status = "finished";
         room.drawerId = null;
         room.word = null;
         room.wordLength = 0;
         room.actionLog = [];
+        room.roundPhase = null;
+        room.choosingOptions = null;
         io.to(roomId).emit("canvasCleared");
         io.to(roomId).emit("gameFinished", {
           players: getPlayersArray(room),
@@ -118,30 +269,11 @@ module.exports = function(io) {
         return;
       }
 
+      room.status = "in_progress";
       const nextId = nextDrawer(room);
       room.drawerId = nextId;
 
-      room.word = pickWord();
-      room.wordLength = room.word.length;
-
-      const drawerPlayer = room.players.get(room.drawerId);
-      const drawerName = drawerPlayer ? drawerPlayer.name : "Drawer";
-
-      // Start the authoritative round timer before broadcasting.
-      startRoundTimer(roomId, ROUND_DURATION_SEC, () => {
-        endRound(room, roomId, "timeout");
-      });
-
-      io.to(roomId).emit("roundStart", {
-        drawerId: room.drawerId,
-        drawerName,
-        wordLength: room.wordLength,
-        endsAt: getEndsAt(roomId),
-      });
-
-      io.to(room.drawerId).emit("yourWord", { word: room.word });
-      io.to(roomId).emit("canvasCleared");
-      broadcastPlayersUpdate(roomId);
+      startChoosingPhase(roomId);
     }
 
     function leaveCurrentRoom(socket) {
@@ -188,6 +320,8 @@ module.exports = function(io) {
         room.word = null;
         room.wordLength = 0;
         room.actionLog = [];
+        room.roundPhase = null;
+        room.choosingOptions = null;
         io.to(currentRoomId).emit("canvasCleared");
         io.to(currentRoomId).emit("waitingForPlayers", {
           count: room.players.size,
@@ -195,7 +329,11 @@ module.exports = function(io) {
           reason: "player_left",
         });
       } else if (socket.id === room.drawerId && room.status === "in_progress") {
-        endRound(room, currentRoomId, "drawerDisconnected");
+        if (room.roundPhase === "choosing" || room.roundPhase === "announcement") {
+          skipChoosing(room, currentRoomId);
+        } else {
+          endRound(room, currentRoomId, "drawerDisconnected");
+        }
       }
     }
 
@@ -259,18 +397,44 @@ module.exports = function(io) {
       broadcastPlayersUpdate(normalizedId);
 
       if (room.status === "in_progress") {
-        // Late joiner: sync to current round state.
         const drawer = room.players.get(room.drawerId);
-        socket.emit("roundStart", {
-          drawerId: room.drawerId,
-          drawerName: drawer ? drawer.name : "Drawer",
-          wordLength: room.wordLength,
-          endsAt: getEndsAt(normalizedId),
-        });
+        const drawerName = drawer ? drawer.name : "Drawer";
 
-        // Send the full ordered action log so the late joiner can replay exactly.
-        if (room.actionLog.length > 0) {
-          socket.emit("actionReplay", { actions: room.actionLog });
+        if (room.roundPhase === "announcement") {
+          socket.emit("newCycleAnnouncement", {
+            cycleNumber: room.announcementCycleNumber,
+          });
+        } else if (room.roundPhase === "choosing") {
+          if (socket.id === room.drawerId) {
+            socket.emit("choosingStarted", {
+              drawerId: room.drawerId,
+              drawerName,
+              options: room.choosingOptions,
+              endsAt: getEndsAt(normalizedId, "choosing"),
+              cycleNumber: room.cyclesCompleted + 1,
+            });
+          } else {
+            socket.emit("choosingStarted", {
+              drawerId: room.drawerId,
+              drawerName,
+              endsAt: getEndsAt(normalizedId, "choosing"),
+              cycleNumber: room.cyclesCompleted + 1,
+            });
+          }
+        } else if (room.roundPhase === "drawing") {
+          const wordHint = room.word.split("").map(c => c === " " ? " " : "_").join("");
+          socket.emit("roundStart", {
+            drawerId: room.drawerId,
+            drawerName,
+            wordLength: room.wordLength,
+            wordHint,
+            endsAt: getEndsAt(normalizedId, "drawing"),
+            cycleNumber: room.cyclesCompleted + 1,
+          });
+
+          if (room.actionLog.length > 0) {
+            socket.emit("actionReplay", { actions: room.actionLog });
+          }
         }
       }
     });
@@ -295,11 +459,26 @@ module.exports = function(io) {
       }
 
       room.cyclesCompleted = 0;
+      room.usedWords = [];
       for (const player of room.players.values()) {
         player.score = 0;
       }
 
       startRound(roomId);
+    });
+
+    // ── Word Chosen (drawer picks during choosing phase) ───────────────────────
+    socket.on("wordChosen", ({ word }) => {
+      const roomId = socketRoomMap.get(socket.id);
+      if (!roomId) return;
+      const room = rooms.get(roomId);
+      if (!room || room.status !== "in_progress") return;
+      if (socket.id !== room.drawerId || room.roundPhase !== "choosing") return;
+
+      const trimmed = (word || "").trim();
+      if (!trimmed) return;
+
+      lockWordAndStartDrawing(room, roomId, trimmed);
     });
 
     // ── Draw Stroke (live preview segments, emitted per-mousemove) ─────────────
@@ -310,7 +489,7 @@ module.exports = function(io) {
       const roomId = socketRoomMap.get(socket.id);
       if (!roomId) return;
       const room = rooms.get(roomId);
-      if (!room || socket.id !== room.drawerId) return;
+      if (!room || socket.id !== room.drawerId || room.roundPhase !== "drawing") return;
 
       // Relay the segment with color/width so guessers render it correctly.
       socket.to(roomId).emit("strokeBroadcast", data);
@@ -322,7 +501,7 @@ module.exports = function(io) {
       const roomId = socketRoomMap.get(socket.id);
       if (!roomId) return;
       const room = rooms.get(roomId);
-      if (!room || socket.id !== room.drawerId || room.status !== "in_progress") return;
+      if (!room || socket.id !== room.drawerId || room.status !== "in_progress" || room.roundPhase !== "drawing") return;
 
       if (action.type === "stroke") {
         // { type, points:[{x,y},...], color, width }
@@ -362,7 +541,7 @@ module.exports = function(io) {
       const roomId = socketRoomMap.get(socket.id);
       if (!roomId) return;
       const room = rooms.get(roomId);
-      if (!room || room.status !== "in_progress") return;
+      if (!room || room.status !== "in_progress" || room.roundPhase !== "drawing") return;
 
       const trimmed = text.trim();
       if (!trimmed) return;
@@ -431,6 +610,9 @@ module.exports = function(io) {
       room.word = null;
       room.wordLength = 0;
       room.actionLog = [];
+      room.usedWords = [];
+      room.roundPhase = null;
+      room.choosingOptions = null;
 
       for (const p of room.players.values()) {
         p.score = 0;

@@ -59,7 +59,7 @@ export function Toolbar({
               onClick={() => onColorChange(hex)}
               aria-label={`${label}${isActive ? " (selected)" : ""}`}
               title={label}
-              className={`relative w-7 h-7 rounded-full transition-transform hover:scale-110 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-blue-500 ${
+              className={`relative w-5 h-5 sm:w-7 sm:h-7  rounded-full transition-transform hover:scale-110 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-blue-500 ${
                 isActive ? "ring-2 ring-offset-1 ring-gray-600 scale-110" : ""
               } ${hex === "#ffffff" ? "border border-gray-300" : ""}`}
               style={{ backgroundColor: hex }}

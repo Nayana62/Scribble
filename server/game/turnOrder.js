@@ -19,7 +19,19 @@ function reassignHost(room) {
   room.hostId = active.length > 0 ? active[0] : null;
 }
 
+function getActiveJoinOrder(room) {
+  return room.joinOrder.filter((id) => room.players.has(id));
+}
+
+/** True when the upcoming drawer is the first player in join order (start of a cycle). */
+function isFirstTurnOfCycle(room, upcomingDrawerId) {
+  const order = getActiveJoinOrder(room);
+  return order.length > 0 && order[0] === upcomingDrawerId;
+}
+
 module.exports = {
   nextDrawer,
   reassignHost,
+  getActiveJoinOrder,
+  isFirstTurnOfCycle,
 };
