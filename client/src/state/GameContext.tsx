@@ -11,7 +11,7 @@ import type {
   JoinedRoomSuccessPayload,
   PlayersUpdatePayload,
   RoundStartPayload,
-  StrokeReplayPayload,
+  ActionReplayPayload,
   YourWordPayload,
   RoundEndPayload,
   RoundTimeoutPayload,
@@ -69,8 +69,8 @@ function useGameSocketEvents(
       setTimeout(() => dispatch({ type: "CLEAR_ROUND_END" }), 2600);
     });
 
-    socket.on("strokeReplay", ({ strokes }: StrokeReplayPayload) => {
-      dispatch({ type: "STROKE_REPLAY", strokes });
+    socket.on("actionReplay", ({ actions }: ActionReplayPayload) => {
+      dispatch({ type: "ACTION_REPLAY", actions });
     });
 
     socket.on("yourWord", ({ word }: YourWordPayload) => {
@@ -126,7 +126,7 @@ function useGameSocketEvents(
       socket.off("joinedRoomSuccess");
       socket.off("playersUpdate");
       socket.off("roundStart");
-      socket.off("strokeReplay");
+      socket.off("actionReplay");
       socket.off("yourWord");
       socket.off("roundEnd");
       socket.off("roundTimeout");

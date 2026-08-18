@@ -11,6 +11,33 @@ export type Role = "drawer" | "guesser";
 
 export type RoomStatus = "waiting" | "in_progress";
 
+/** A single point in a freehand stroke. */
+export type Point = { x: number; y: number };
+
+/**
+ * An entry in the ordered round action log.
+ * Used for late-joiner replay and undo-from-scratch.
+ * NOTE: 'undo' is NOT an action log entry on the client — it removes one entry instead.
+ */
+export type DrawAction =
+  | { type: "stroke"; points: Point[]; color: string; width: number }
+  | { type: "fill"; x: number; y: number; color: string }
+  | { type: "clear" };
+
+/**
+ * Extended live-preview stroke segment (emitted per mousemove for real-time rendering).
+ * Carries color/width so receiving clients render it with the correct style.
+ */
+export type StrokeSegment = {
+  prevX: number;
+  prevY: number;
+  x: number;
+  y: number;
+  color: string;
+  width: number;
+};
+
+/** @deprecated — kept for type reference; actual replay uses ActionReplayPayload */
 export type Stroke = {
   prevX: number;
   prevY: number;
@@ -48,8 +75,9 @@ export type RoundTimeoutPayload = {
   word: string;
 };
 
-export type StrokeReplayPayload = {
-  strokes: Stroke[];
+/** Late-joiner full action log replay (replaces the old StrokeReplayPayload). */
+export type ActionReplayPayload = {
+  actions: DrawAction[];
 };
 
 export type YourWordPayload = {

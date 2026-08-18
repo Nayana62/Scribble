@@ -71,19 +71,11 @@ module.exports = function(io) {
       clearRoundTimer(roomId);
 
       if (reason === "timeout") {
-        // Reveal the word to everyone.
         io.to(roomId).emit("roundTimeout", { word: room.word });
-
-        // Brief pause so players can read the revealed word, then begin next round.
         setTimeout(() => startRound(roomId), 2500);
-
       } else if (reason === "allGuessed") {
-        // `roundEnd` and points were already handled by the caller.
-        // Just schedule the transition.
         setTimeout(() => startRound(roomId), 2500);
-
       } else if (reason === "drawerDisconnected") {
-        // No delay — jump straight to the next round.
         startRound(roomId);
       }
     }
@@ -97,7 +89,7 @@ module.exports = function(io) {
         room.drawerId = null;
         room.word = null;
         room.wordLength = 0;
-        room.strokeHistory = [];
+        room.actionLog = [];
         io.to(roomId).emit("canvasCleared");
         io.to(roomId).emit("waitingForPlayers", {
           count: room.players.size,
@@ -108,9 +100,8 @@ module.exports = function(io) {
       }
 
       room.status = "in_progress";
-      room.strokeHistory = []; // fresh canvas each round
+      room.actionLog = []; // fresh canvas each round
 
-      // Check cycles completed before picking next drawer
       checkCycleCompleted(room, room.drawerId);
 
       if (isGameFinished(room)) {
@@ -118,7 +109,7 @@ module.exports = function(io) {
         room.drawerId = null;
         room.word = null;
         room.wordLength = 0;
-        room.strokeHistory = [];
+        room.actionLog = [];
         io.to(roomId).emit("canvasCleared");
         io.to(roomId).emit("gameFinished", {
           players: getPlayersArray(room),
@@ -130,20 +121,17 @@ module.exports = function(io) {
       const nextId = nextDrawer(room);
       room.drawerId = nextId;
 
-      // Pick word
       room.word = pickWord();
       room.wordLength = room.word.length;
 
       const drawerPlayer = room.players.get(room.drawerId);
       const drawerName = drawerPlayer ? drawerPlayer.name : "Drawer";
 
-      // Start the authoritative round timer before broadcasting so that
-      // getEndsAt() is ready when we emit roundStart.
+      // Start the authoritative round timer before broadcasting.
       startRoundTimer(roomId, ROUND_DURATION_SEC, () => {
         endRound(room, roomId, "timeout");
       });
 
-      // Tell everyone the round started — include endsAt for the client timer.
       io.to(roomId).emit("roundStart", {
         drawerId: room.drawerId,
         drawerName,
@@ -151,12 +139,8 @@ module.exports = function(io) {
         endsAt: getEndsAt(roomId),
       });
 
-      // Tell drawer their word privately
       io.to(room.drawerId).emit("yourWord", { word: room.word });
-
-      // Clear canvas for everyone
       io.to(roomId).emit("canvasCleared");
-
       broadcastPlayersUpdate(roomId);
     }
 
@@ -173,22 +157,18 @@ module.exports = function(io) {
       const player = room.players.get(socket.id);
       const playerName = player ? player.name : "A player";
       room.players.delete(socket.id);
-      // Keep joinOrder intact; nextDrawer/reassignHost skip missing players.
 
-      // Emit player left to remaining players
       io.to(currentRoomId).emit("playerLeft", {
         id: socket.id,
         name: playerName,
       });
 
-      // Clean up empty rooms
       if (room.players.size === 0) {
         clearRoundTimer(currentRoomId);
         rooms.delete(currentRoomId);
         return;
       }
 
-      // Host transfer if host left
       const wasHost = socket.id === room.hostId;
       if (wasHost) {
         reassignHost(room);
@@ -201,14 +181,13 @@ module.exports = function(io) {
 
       broadcastPlayersUpdate(currentRoomId);
 
-      // Below-minimum check
       if (room.players.size < MIN_PLAYERS) {
         clearRoundTimer(currentRoomId);
         room.status = "waiting";
         room.drawerId = null;
         room.word = null;
         room.wordLength = 0;
-        room.strokeHistory = [];
+        room.actionLog = [];
         io.to(currentRoomId).emit("canvasCleared");
         io.to(currentRoomId).emit("waitingForPlayers", {
           count: room.players.size,
@@ -216,7 +195,6 @@ module.exports = function(io) {
           reason: "player_left",
         });
       } else if (socket.id === room.drawerId && room.status === "in_progress") {
-        // Drawer left mid-round but enough players remain → end round immediately.
         endRound(room, currentRoomId, "drawerDisconnected");
       }
     }
@@ -228,7 +206,7 @@ module.exports = function(io) {
       const playerName = (name || "Player").trim() || "Player";
       const roomId = generateRoomId();
       const room = initRoom(roomId, socket.id);
-      const color = PLAYER_COLORS[0]; // host always gets first color
+      const color = PLAYER_COLORS[0];
 
       socket.join(roomId);
       socketRoomMap.set(socket.id, roomId);
@@ -239,12 +217,7 @@ module.exports = function(io) {
         color,
       });
 
-      socket.emit("joinedRoomSuccess", {
-        roomId,
-        isHost: true,
-        color,
-      });
-
+      socket.emit("joinedRoomSuccess", { roomId, isHost: true, color });
       broadcastPlayersUpdate(roomId);
     });
 
@@ -264,9 +237,7 @@ module.exports = function(io) {
       const room = rooms.get(normalizedId);
 
       if (room.players.size >= ROOM_CAPACITY) {
-        socket.emit("roomFull", {
-          message: "This room is full (12/12 players).",
-        });
+        socket.emit("roomFull", { message: "This room is full (12/12 players)." });
         return;
       }
 
@@ -276,36 +247,19 @@ module.exports = function(io) {
       socket.join(normalizedId);
       socketRoomMap.set(socket.id, normalizedId);
 
-      // Append to join order only if not already in it (reconnect safety)
       if (!room.joinOrder.includes(socket.id)) {
         room.joinOrder.push(socket.id);
       }
 
-      room.players.set(socket.id, {
-        id: socket.id,
-        name: playerName,
-        score: 0,
-        color,
-      });
+      room.players.set(socket.id, { id: socket.id, name: playerName, score: 0, color });
 
       const isHost = socket.id === room.hostId;
-
-      socket.emit("joinedRoomSuccess", {
-        roomId: normalizedId,
-        isHost,
-        color,
-      });
-
-      socket.to(normalizedId).emit("playerJoined", {
-        id: socket.id,
-        name: playerName,
-      });
-
+      socket.emit("joinedRoomSuccess", { roomId: normalizedId, isHost, color });
+      socket.to(normalizedId).emit("playerJoined", { id: socket.id, name: playerName });
       broadcastPlayersUpdate(normalizedId);
 
       if (room.status === "in_progress") {
-        // Late joiner: drop straight into the active round.
-        // Include endsAt so the client timer starts with correct remaining time.
+        // Late joiner: sync to current round state.
         const drawer = room.players.get(room.drawerId);
         socket.emit("roundStart", {
           drawerId: room.drawerId,
@@ -314,9 +268,9 @@ module.exports = function(io) {
           endsAt: getEndsAt(normalizedId),
         });
 
-        // Replay stroke history so the canvas isn't blank
-        if (room.strokeHistory.length > 0) {
-          socket.emit("strokeReplay", { strokes: room.strokeHistory });
+        // Send the full ordered action log so the late joiner can replay exactly.
+        if (room.actionLog.length > 0) {
+          socket.emit("actionReplay", { actions: room.actionLog });
         }
       }
     });
@@ -340,7 +294,6 @@ module.exports = function(io) {
         return;
       }
 
-      // Reset game state for a fresh game
       room.cyclesCompleted = 0;
       for (const player of room.players.values()) {
         player.score = 0;
@@ -349,29 +302,59 @@ module.exports = function(io) {
       startRound(roomId);
     });
 
-    // ── Draw Stroke ───────────────────────────────────────────────────────────
+    // ── Draw Stroke (live preview segments, emitted per-mousemove) ─────────────
+    // Payload: { prevX, prevY, x, y, color, width }
+    // This event is for real-time rendering on other clients only.
+    // The complete stroke is committed to the action log via `drawAction`.
     socket.on("drawStroke", (data) => {
       const roomId = socketRoomMap.get(socket.id);
       if (!roomId) return;
       const room = rooms.get(roomId);
       if (!room || socket.id !== room.drawerId) return;
 
-      // Store for late-joiner replay
-      room.strokeHistory.push(data);
-
-      // Relay to everyone else in the room
+      // Relay the segment with color/width so guessers render it correctly.
       socket.to(roomId).emit("strokeBroadcast", data);
     });
 
-    // ── Clear Canvas ──────────────────────────────────────────────────────────
-    socket.on("clearCanvasRequest", () => {
+    // ── Draw Action (committed actions appended to the log) ────────────────────
+    // type: 'stroke' | 'fill' | 'clear' | 'undo'
+    socket.on("drawAction", (action) => {
       const roomId = socketRoomMap.get(socket.id);
       if (!roomId) return;
       const room = rooms.get(roomId);
-      if (!room || socket.id !== room.drawerId) return;
+      if (!room || socket.id !== room.drawerId || room.status !== "in_progress") return;
 
-      room.strokeHistory = []; // wipe replay history too
-      io.to(roomId).emit("canvasCleared");
+      if (action.type === "stroke") {
+        // { type, points:[{x,y},...], color, width }
+        room.actionLog.push({
+          type: "stroke",
+          points: action.points,
+          color: action.color,
+          width: action.width,
+        });
+      } else if (action.type === "fill") {
+        // { type, x, y, color }
+        room.actionLog.push({
+          type: "fill",
+          x: action.x,
+          y: action.y,
+          color: action.color,
+        });
+      } else if (action.type === "clear") {
+        // Append a clear entry — subsequent undo can remove it and replay prior state.
+        room.actionLog.push({ type: "clear" });
+      } else if (action.type === "undo") {
+        // Pop the most recent entry instead of appending.
+        if (room.actionLog.length > 0) {
+          room.actionLog.pop();
+        }
+      } else {
+        // Unknown action type — ignore.
+        return;
+      }
+
+      // Relay to all other clients in the room so their canvases stay in sync.
+      socket.to(roomId).emit("drawAction", action);
     });
 
     // ── Submit Guess / Chat ───────────────────────────────────────────────────
@@ -396,7 +379,6 @@ module.exports = function(io) {
           socket.emit("guessBlocked", { text: trimmed });
           return;
         }
-        // Drawer can chat normally
         io.to(roomId).emit("chatMessage", {
           text: trimmed,
           senderId: socket.id,
@@ -423,9 +405,6 @@ module.exports = function(io) {
         });
 
         broadcastPlayersUpdate(roomId);
-
-        // Consolidate round-end transition through endRound so the round timer
-        // is cancelled before we schedule the next round.
         endRound(room, roomId, "allGuessed");
       } else {
         io.to(roomId).emit("guessResult", {
@@ -451,7 +430,7 @@ module.exports = function(io) {
       room.drawerId = null;
       room.word = null;
       room.wordLength = 0;
-      room.strokeHistory = [];
+      room.actionLog = [];
 
       for (const p of room.players.values()) {
         p.score = 0;

@@ -18,7 +18,7 @@ export function GameScreen() {
     drawerId,
     wordLength,
     word,
-    replayStrokes,
+    replayActions,
     roundEndInfo,
     noticeMsg,
     endsAt,
@@ -85,7 +85,7 @@ export function GameScreen() {
           </div>
 
           <div className="flex-1 min-h-0">
-            <Canvas role={role} replayStrokes={replayStrokes} />
+            <Canvas role={role} replayActions={replayActions} />
           </div>
         </div>
 

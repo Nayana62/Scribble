@@ -122,8 +122,9 @@ Derived values (`isDrawer`, `role`, `wordChars`, `sortedPlayers`, podium groups)
 | `playersUpdate` | `{ players, hostId, status, drawerId }` | `dispatch(PLAYERS_UPDATED)` — updates roster, host, drawer; sets screen to `"game"` if in progress. |
 | `roundStart` | `{ drawerId, drawerName, wordLength, endsAt }` | `dispatch(ROUND_STARTED)` — clears round state, sets `endsAt`, sets screen to `"game"`. |
 | `yourWord` | `{ word }` | `dispatch(YOUR_WORD)` — secret word for drawer only. |
-| `strokeBroadcast` | `{ prevX, prevY, x, y }` | Handled in `Canvas.tsx` — renders live stroke (guessers). |
-| `strokeReplay` | `{ strokes: [] }` | `dispatch(STROKE_REPLAY)` — late-joiner canvas replay. |
+| `strokeBroadcast` | `{ prevX, prevY, x, y, color, width }` | Handled in `Canvas.tsx` — renders live stroke (guessers). |
+| `drawAction` | `{ type: 'stroke'\|'fill'\|'clear'\|'undo', ...payload }` | Handled in `Canvas.tsx` — handles stroke, fill, clear, and undo actions. |
+| `actionReplay` | `{ actions: [] }` | `dispatch(ACTION_REPLAY)` — late-joiner canvas replay. |
 | `canvasCleared` | `(none)` | Handled in `Canvas.tsx` — clears 2D context. |
 | `guessBlocked` | `{ text }` | Handled in `GuessForm.tsx` — drawer cheat warning. |
 | `chatMessage` | `{ text, senderId, senderName }` | Appended in `ChatLog.tsx`. |

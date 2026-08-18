@@ -22,7 +22,7 @@ Detailed architectural specifications for the Scribble Node.js + Socket.IO serve
                    ┌─────────────────────────────────────────┐
                    │       State: "in_progress" (Round 1)    │
                    │  - Pick Drawer (Sequential Rotation)    │
-                   │  - Pick Word & Clear strokeHistory      │
+                   │  - Pick Word & Clear actionLog      │
                    │  - Start 80s round timer                │
                    │  - Broadcast `roundStart` & `yourWord`  │
                    └────────────────────┬────────────────────┘
@@ -67,7 +67,8 @@ Each room state object in the internal `Map` holds:
   wordLength: number,           // target word length
   status: "waiting" | "in_progress" | "finished",
   cyclesCompleted: number,      // count of full sequential rotations completed
-  strokeHistory: object[],      // array of drawings to replay for late joiners
+  actionLog: object[],          // ordered drawing action log: { type:'stroke'|'fill'|'clear', ...payload }
+                                 // used for late-joiner canvas replay; undo pops the last entry.
   // Round timer state is managed externally in game/timer.js (keyed by roomId).
 }
 ```
@@ -124,8 +125,9 @@ The server is decoupled into separate modules separating socket networking from 
 | `waitingForPlayers` | `{ count, min, reason? }` | Player count drops below minimum |
 | `hostChanged` | `{ newHostId, newHostName }` | Host disconnects |
 | `yourWord` | `{ word }` | Drawer only — secret word |
-| `strokeBroadcast` | stroke data | Guessers receive live drawing |
-| `strokeReplay` | `{ strokes }` | Late-joiner canvas replay |
+| `strokeBroadcast` | `{ prevX, prevY, x, y, color, width }` | Guessers receive live drawing segments |
+| `drawAction` | `{ type: 'stroke'\|'fill'\|'clear'\|'undo', ...payload }` | Relays drawing actions to other clients |
+| `actionReplay` | `{ actions: DrawAction[] }` | Late-joiner canvas replay |
 | `canvasCleared` | — | Canvas wipe |
 | `guessResult` | `{ text, senderId, senderName, correct }` | Guess outcome |
 | `chatMessage` | `{ text, senderId, senderName, isDrawer }` | Chat from drawer |

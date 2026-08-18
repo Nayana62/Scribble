@@ -2,7 +2,7 @@ import type {
   Player,
   Screen,
   RoomStatus,
-  Stroke,
+  DrawAction,
   RoundEndInfo,
 } from "../types";
 
@@ -18,7 +18,8 @@ export type GameState = {
   roomStatus: RoomStatus;
   word: string;
   wordLength: number;
-  replayStrokes: Stroke[];
+  /** Full ordered action log for late-joiner canvas replay. */
+  replayActions: DrawAction[];
   roundEndInfo: RoundEndInfo | null;
   noticeMsg: string;
   /** Epoch ms when the current round expires. Null when no round is active. */
@@ -37,7 +38,7 @@ export const initialGameState: GameState = {
   roomStatus: "waiting",
   word: "",
   wordLength: 0,
-  replayStrokes: [],
+  replayActions: [],
   roundEndInfo: null,
   noticeMsg: "",
   endsAt: null,
@@ -60,7 +61,7 @@ export type Action =
       wordLength: number;
       endsAt: number | null;
     }
-  | { type: "STROKE_REPLAY"; strokes: Stroke[] }
+  | { type: "ACTION_REPLAY"; actions: DrawAction[] }
   | { type: "YOUR_WORD"; word: string }
   | { type: "ROUND_ENDED"; correctWord: string; winnerName: string }
   | { type: "ROUND_TIMEOUT"; word: string }
@@ -114,13 +115,13 @@ export function gameReducer(state: GameState, action: Action): GameState {
         word: "",
         roundEndInfo: null,
         roomStatus: "in_progress",
-        replayStrokes: [],
+        replayActions: [],
         screen: "game",
         endsAt: action.endsAt,
       };
 
-    case "STROKE_REPLAY":
-      return { ...state, replayStrokes: action.strokes };
+    case "ACTION_REPLAY":
+      return { ...state, replayActions: action.actions };
 
     case "YOUR_WORD":
       return {
@@ -139,8 +140,6 @@ export function gameReducer(state: GameState, action: Action): GameState {
         },
       };
 
-    // Timer expired with no correct guess — same state transition as ROUND_ENDED
-    // but the roundEndInfo shows the revealed word with no winner name.
     case "ROUND_TIMEOUT":
       return {
         ...state,

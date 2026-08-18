@@ -1,153 +1,308 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { socket } from "../../socket.ts";
-import { Trash2 } from "lucide-react";
-
-type StrokeData = { prevX: number; prevY: number; x: number; y: number };
+import type { DrawAction, Point, StrokeSegment } from "../../types.ts";
+import { floodFill } from "../lib/flood-fill.ts";
+import { replayActions } from "../lib/replay-actions.ts";
+import {
+  DEFAULT_COLOR,
+  DEFAULT_WIDTH,
+  Toolbar,
+  type ActiveTool,
+} from "./toolbar.tsx";
 
 type Props = {
   role: "drawer" | "guesser" | null;
-  replayStrokes?: StrokeData[];
+  /** Full ordered action log for late-joiner replay (from shared game state). */
+  replayActions?: DrawAction[];
 };
 
-export default function Canvas({ role, replayStrokes = [] }: Props) {
+export default function Canvas({ role, replayActions: replayActionsProp = [] }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  const isDrawing = useRef(false);
-  const lastX = useRef(0);
-  const lastY = useRef(0);
+  // ── Drawing input state (local to this component, not in the reducer) ────────
+  const [activeTool, setActiveTool] = useState<ActiveTool>("pencil");
+  const [activeColor, setActiveColor] = useState<string>(DEFAULT_COLOR);
+  const [activeWidth, setActiveWidth] = useState<number>(DEFAULT_WIDTH);
 
-  // Exact coordinate calculation matching DOM bounding box to internal canvas resolution
-  function getCanvasCoords(clientX: number, clientY: number) {
+  // Action log maintained locally — mirrors server's room.actionLog for this round.
+  // Using a ref so mutations don't trigger re-renders; canUndo drives the button state.
+  const localActionLog = useRef<DrawAction[]>([]);
+  const [canUndo, setCanUndo] = useState(false);
+
+  // Current stroke accumulator (points collected between mousedown → mouseup)
+  const currentStrokePoints = useRef<Point[]>([]);
+  const isDrawing = useRef(false);
+
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+
+  function getCtx(): CanvasRenderingContext2D | null {
+    return canvasRef.current?.getContext("2d") ?? null;
+  }
+
+  function getCanvasCoords(clientX: number, clientY: number): Point {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
-
     const rect = canvas.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return { x: 0, y: 0 };
-
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
-
     return {
       x: (clientX - rect.left) * scaleX,
       y: (clientY - rect.top) * scaleY,
     };
   }
 
-  function drawLine(x1: number, y1: number, x2: number, y2: number) {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+  /** Draw a single segment — used for live preview (drawer + receiving clients). */
+  function drawSegment(
+    prevX: number,
+    prevY: number,
+    x: number,
+    y: number,
+    color: string,
+    width: number,
+  ) {
+    const ctx = getCtx();
     if (!ctx) return;
-
     ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-
-    ctx.strokeStyle = "#0f172a";
-    ctx.lineWidth = 4;
+    ctx.moveTo(prevX, prevY);
+    ctx.lineTo(x, y);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-
     ctx.stroke();
   }
 
-  function clearCanvas() {
+  function clearCanvasLocally() {
+    const ctx = getCtx();
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
+    if (!ctx || !canvas) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
   }
 
-  // Mouse Handlers
+  /** Sync canUndo state after mutating the local action log. */
+  function syncCanUndo() {
+    setCanUndo(localActionLog.current.length > 0);
+  }
+
+  // ── Drawer action handlers ────────────────────────────────────────────────────
+
+  const handleUndo = useCallback(() => {
+    if (localActionLog.current.length === 0) return;
+    localActionLog.current.pop();
+    syncCanUndo();
+
+    const ctx = getCtx();
+    if (ctx) replayActions(ctx, localActionLog.current);
+
+    socket.emit("drawAction", { type: "undo" });
+  }, []);
+
+  const handleClear = useCallback(() => {
+    localActionLog.current.push({ type: "clear" });
+    syncCanUndo();
+    clearCanvasLocally();
+    socket.emit("drawAction", { type: "clear" });
+  }, []);
+
+  // ── Mouse Handlers ────────────────────────────────────────────────────────────
+
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (role !== "drawer") return;
-    isDrawing.current = true;
     const { x, y } = getCanvasCoords(e.clientX, e.clientY);
-    lastX.current = x;
-    lastY.current = y;
+
+    if (activeTool === "fill") {
+      // Fill tool: act on mousedown, no drag
+      const ctx = getCtx();
+      if (!ctx) return;
+      floodFill(ctx, x, y, activeColor);
+      const action: DrawAction = { type: "fill", x, y, color: activeColor };
+      localActionLog.current.push(action);
+      syncCanUndo();
+      socket.emit("drawAction", action);
+      return;
+    }
+
+    // Pencil
+    isDrawing.current = true;
+    currentStrokePoints.current = [{ x, y }];
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (role !== "drawer" || !isDrawing.current) return;
+    if (role !== "drawer" || activeTool !== "pencil" || !isDrawing.current) return;
     const { x, y } = getCanvasCoords(e.clientX, e.clientY);
-    drawLine(lastX.current, lastY.current, x, y);
+    const pts = currentStrokePoints.current;
+    const prev = pts[pts.length - 1];
 
+    drawSegment(prev.x, prev.y, x, y, activeColor, activeWidth);
+    pts.push({ x, y });
+
+    // Emit live-preview segment (received by guessers for real-time rendering)
     socket.emit("drawStroke", {
-      prevX: lastX.current,
-      prevY: lastY.current,
+      prevX: prev.x,
+      prevY: prev.y,
       x,
       y,
+      color: activeColor,
+      width: activeWidth,
     });
-
-    lastX.current = x;
-    lastY.current = y;
   };
 
   const handleMouseUp = () => {
+    if (!isDrawing.current) return;
     isDrawing.current = false;
+
+    const pts = currentStrokePoints.current;
+    if (pts.length < 2) {
+      currentStrokePoints.current = [];
+      return;
+    }
+
+    // Commit the completed stroke to the log
+    const action: DrawAction = {
+      type: "stroke",
+      points: [...pts],
+      color: activeColor,
+      width: activeWidth,
+    };
+    localActionLog.current.push(action);
+    syncCanUndo();
+    socket.emit("drawAction", action);
+    currentStrokePoints.current = [];
   };
 
-  // Touch Handlers for Mobile Devices
+  // ── Touch Handlers ────────────────────────────────────────────────────────────
+
   const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
     if (role !== "drawer") return;
     const touch = e.touches[0];
     if (!touch) return;
+    const { x, y } = getCanvasCoords(touch.clientX, touch.clientY);
+
+    if (activeTool === "fill") {
+      const ctx = getCtx();
+      if (!ctx) return;
+      floodFill(ctx, x, y, activeColor);
+      const action: DrawAction = { type: "fill", x, y, color: activeColor };
+      localActionLog.current.push(action);
+      syncCanUndo();
+      socket.emit("drawAction", action);
+      return;
+    }
 
     isDrawing.current = true;
-    const { x, y } = getCanvasCoords(touch.clientX, touch.clientY);
-    lastX.current = x;
-    lastY.current = y;
+    currentStrokePoints.current = [{ x, y }];
   };
 
   const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
-    if (role !== "drawer" || !isDrawing.current) return;
+    if (role !== "drawer" || activeTool !== "pencil" || !isDrawing.current) return;
     const touch = e.touches[0];
     if (!touch) return;
-
     const { x, y } = getCanvasCoords(touch.clientX, touch.clientY);
-    drawLine(lastX.current, lastY.current, x, y);
+    const pts = currentStrokePoints.current;
+    const prev = pts[pts.length - 1];
+
+    drawSegment(prev.x, prev.y, x, y, activeColor, activeWidth);
+    pts.push({ x, y });
 
     socket.emit("drawStroke", {
-      prevX: lastX.current,
-      prevY: lastY.current,
+      prevX: prev.x,
+      prevY: prev.y,
       x,
       y,
+      color: activeColor,
+      width: activeWidth,
     });
-
-    lastX.current = x;
-    lastY.current = y;
   };
 
-  // Draw replay strokes whenever the prop changes (late joiner catches up)
+  const handleTouchEnd = () => {
+    handleMouseUp();
+  };
+
+  // ── Late-joiner replay ────────────────────────────────────────────────────────
+  // When the shared state provides a fresh action log (joining mid-round),
+  // load it into the local log and replay from scratch.
   useEffect(() => {
-    if (replayStrokes.length === 0) return;
-    // Small rAF delay ensures the canvas is painted and sized before we draw
+    if (replayActionsProp.length === 0) return;
     requestAnimationFrame(() => {
-      replayStrokes.forEach((s) => drawLine(s.prevX, s.prevY, s.x, s.y));
+      const ctx = getCtx();
+      if (!ctx) return;
+      localActionLog.current = [...replayActionsProp];
+      replayActions(ctx, localActionLog.current);
+      syncCanUndo();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [replayStrokes]);
+  }, [replayActionsProp]);
 
+  // ── Socket listeners (receiving actions from the drawer) ─────────────────────
   useEffect(() => {
-    function handleStroke(data: StrokeData) {
-      drawLine(data.prevX, data.prevY, data.x, data.y);
+    function handleStrokeBroadcast(data: StrokeSegment) {
+      // Live preview segment — render immediately with its color/width.
+      drawSegment(data.prevX, data.prevY, data.x, data.y, data.color, data.width);
     }
 
-    socket.on("strokeBroadcast", handleStroke);
-    socket.on("canvasCleared", clearCanvas);
-    socket.on("roundStart", clearCanvas);
+    function handleDrawAction(action: { type: string; [key: string]: unknown }) {
+      const ctx = getCtx();
+      if (!ctx) return;
+
+      if (action.type === "stroke") {
+        const a = action as DrawAction & { type: "stroke" };
+        localActionLog.current.push({ type: "stroke", points: a.points, color: a.color, width: a.width });
+        // Replay only this stroke (already rendered via strokeBroadcast segments, but
+        // re-drawing via polyline ensures perfect pixel consistency with the drawer).
+        // We skip the full replayActions() here for performance — the log is already consistent.
+      } else if (action.type === "fill") {
+        const a = action as DrawAction & { type: "fill" };
+        localActionLog.current.push({ type: "fill", x: a.x, y: a.y, color: a.color });
+        floodFill(ctx, a.x, a.y, a.color);
+      } else if (action.type === "clear") {
+        localActionLog.current.push({ type: "clear" });
+        clearCanvasLocally();
+      } else if (action.type === "undo") {
+        if (localActionLog.current.length > 0) {
+          localActionLog.current.pop();
+          replayActions(ctx, localActionLog.current);
+        }
+      }
+      // Keep canUndo in sync for non-drawers too (in case role ever changes mid-round)
+    }
+
+    function handleCanvasCleared() {
+      localActionLog.current = [];
+      clearCanvasLocally();
+      setCanUndo(false);
+    }
+
+    function handleRoundStart() {
+      localActionLog.current = [];
+      clearCanvasLocally();
+      setCanUndo(false);
+    }
+
+    socket.on("strokeBroadcast", handleStrokeBroadcast);
+    socket.on("drawAction", handleDrawAction);
+    socket.on("canvasCleared", handleCanvasCleared);
+    socket.on("roundStart", handleRoundStart);
 
     return () => {
-      socket.off("strokeBroadcast", handleStroke);
-      socket.off("canvasCleared", clearCanvas);
-      socket.off("roundStart", clearCanvas);
+      socket.off("strokeBroadcast", handleStrokeBroadcast);
+      socket.off("drawAction", handleDrawAction);
+      socket.off("canvasCleared", handleCanvasCleared);
+      socket.off("roundStart", handleRoundStart);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── Derived cursor style ──────────────────────────────────────────────────────
+  const canvasCursor =
+    role !== "drawer"
+      ? "default"
+      : activeTool === "fill"
+        ? "crosshair"
+        : "crosshair"; // pencil also uses crosshair for precision; can switch to "url(...) pencil" later
+
   return (
-    <div className="flex flex-col h-full bg-white/10 backdrop-blur-sm rounded-xl border border-white/20 overflow-hidden">
+    <div className="flex flex-col h-full bg-white/10 backdrop-blur-sm rounded-xl border border-white/20 overflow-hidden gap-0">
       {/* Canvas area */}
       <div className="flex-1 min-h-0 relative overflow-hidden">
         <canvas
@@ -155,30 +310,31 @@ export default function Canvas({ role, replayStrokes = [] }: Props) {
           width={800}
           height={450}
           className="w-full h-full block bg-white touch-none"
+          style={{ cursor: canvasCursor }}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
-          onTouchEnd={handleMouseUp}
+          onTouchEnd={handleTouchEnd}
         />
       </div>
 
-      {/* Clear button — only visible to drawer */}
+      {/* Toolbar — drawer only */}
       {role === "drawer" && (
-        <div className="shrink-0 flex justify-end px-2 py-1.5 bg-white/5 border-t border-white/10">
-          <button
-            onClick={() => {
-              clearCanvas();
-              socket.emit("clearCanvasRequest");
-            }}
-            className="bg-red-500/80 flex items-center gap-1 hover:bg-red-500 active:scale-95 text-white font-bold text-xs px-3 py-1.5 rounded-lg transition-all"
-          >
-            <Trash2 className="w-4 h-4" />
-
-            <span>Clear</span>
-          </button>
+        <div className="shrink-0 px-2 pt-1.5 pb-2">
+          <Toolbar
+            activeColor={activeColor}
+            onColorChange={setActiveColor}
+            activeWidth={activeWidth}
+            onWidthChange={setActiveWidth}
+            activeTool={activeTool}
+            onToolChange={setActiveTool}
+            canUndo={canUndo}
+            onUndo={handleUndo}
+            onClear={handleClear}
+          />
         </div>
       )}
     </div>

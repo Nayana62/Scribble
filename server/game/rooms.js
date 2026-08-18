@@ -50,7 +50,12 @@ function initRoom(roomId, hostId) {
     wordLength: 0,
     status: "waiting",
     cyclesCompleted: 0,
-    strokeHistory: [],
+    /**
+     * Ordered log of all drawing actions for the current round.
+     * Entries: { type:'stroke', points, color, width } | { type:'fill', x, y, color } | { type:'clear' }
+     * Used for late-joiner canvas replay. Undo pops the last entry instead of appending.
+     */
+    actionLog: [],
     // Round timer state is managed externally in game/timer.js (keyed by roomId).
   };
   rooms.set(roomId, room);
