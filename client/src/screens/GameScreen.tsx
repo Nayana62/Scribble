@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import Canvas from "../app/components/canvas";
 import { ChatPanel } from "../app/components/chat-panel";
+import { MobileChatInputRow } from "../app/components/mobile-chat-input-row";
 import { PlayerList } from "../app/components/player-list";
 import { Timer } from "../app/components/timer";
 import { socket } from "../socket";
@@ -51,7 +52,7 @@ export function GameScreen() {
         </div>
       )}
 
-      <div className="flex-1 min-h-0 p-2 md:p-3 grid grid-cols-12 gap-2 md:gap-3 overflow-hidden">
+      <div className="flex-1 min-h-0 p-2 md:p-3 grid grid-cols-12 gap-x-2 gap-y-0 md:gap-3 overflow-hidden">
         <div className="col-span-6 order-2 md:col-span-3 md:order-1 h-[38vh] md:h-full min-h-0 overflow-hidden">
           <PlayerList players={players} hostId={hostId} drawerId={drawerId} />
         </div>
@@ -93,6 +94,8 @@ export function GameScreen() {
           <ChatPanel role={role} players={players} />
         </div>
       </div>
+
+      <MobileChatInputRow role={role} />
     </div>
   );
 }

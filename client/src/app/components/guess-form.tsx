@@ -38,7 +38,7 @@ export const GuessForm = ({ role }: Props) => {
           placeholder={role === "drawer" ? "Chat..." : "Type your guess…"}
           maxLength={60}
           onChange={(e) => setGuessInput(e.target.value)}
-          className="flex-1 min-w-0 bg-white/15 text-white placeholder-white/40 text-sm rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-400/60 border border-white/20"
+          className="flex-1 min-w-0 bg-white/15 text-white placeholder-white/40 text-sm rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-400/60 border border-white/20 scroll-m-0"
         />
         <button
           type="submit"

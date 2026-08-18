@@ -14,7 +14,9 @@ export function ChatPanel({ role, players }: Props) {
         <span className="text-white font-bold text-sm tracking-wide">Chat</span>
       </div>
       <ChatLog players={players} />
-      <GuessForm role={role} />
+      <div className="hidden md:block shrink-0">
+        <GuessForm role={role} />
+      </div>
     </div>
   );
 }
