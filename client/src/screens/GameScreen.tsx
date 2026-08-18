@@ -1,35 +1,35 @@
+import { useMemo } from "react";
 import Canvas from "../app/components/canvas";
 import { ChatPanel } from "../app/components/chat-panel";
 import { PlayerList } from "../app/components/player-list";
-import type { Player, RoundEndInfo, Stroke, Role } from "../types";
+import { socket } from "../socket";
+import { useGame } from "../state/GameContext";
+import type { Role } from "../types";
 
-type GameScreenProps = {
-  players: Player[];
-  hostId: string | null;
-  drawerId: string | null;
-  wordLength: number;
-  wordChars: string[];
-  isDrawer: boolean;
-  word: string;
-  role: Role;
-  replayStrokes: Stroke[];
-  roundEndInfo: RoundEndInfo | null;
-  noticeMsg: string;
-};
+export function GameScreen() {
+  const { state } = useGame();
+  const {
+    players,
+    hostId,
+    drawerId,
+    wordLength,
+    word,
+    replayStrokes,
+    roundEndInfo,
+    noticeMsg,
+  } = state;
 
-export function GameScreen({
-  players,
-  hostId,
-  drawerId,
-  wordLength,
-  wordChars,
-  isDrawer,
-  word,
-  role,
-  replayStrokes,
-  roundEndInfo,
-  noticeMsg,
-}: GameScreenProps) {
+  const isDrawer = socket.id === drawerId;
+  const role: Role = isDrawer ? "drawer" : "guesser";
+
+  const wordChars = useMemo(
+    () =>
+      isDrawer && word
+        ? word.split("")
+        : Array.from({ length: wordLength }, () => "_"),
+    [isDrawer, word, wordLength],
+  );
+
   return (
     <div className="h-screen w-full flex flex-col overflow-hidden">
       {roundEndInfo && (

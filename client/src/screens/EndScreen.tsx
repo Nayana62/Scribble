@@ -1,25 +1,41 @@
+import { useMemo } from "react";
 import { socket } from "../socket";
-import type { Player, RankedGroup } from "../types";
+import { useGame } from "../state/GameContext";
+import type { RankedGroup } from "../types";
 
-type EndScreenProps = {
-  roomId: string;
-  sortedPlayers: Player[];
-  firstPlace: RankedGroup | undefined;
-  secondPlace: RankedGroup | undefined;
-  thirdPlace: RankedGroup | undefined;
-  onPlayAgain: () => void;
-  onBackToMain: () => void;
-};
+export function EndScreen() {
+  const { state, leaveRoom } = useGame();
+  const { roomId, players } = state;
 
-export function EndScreen({
-  roomId,
-  sortedPlayers,
-  firstPlace,
-  secondPlace,
-  thirdPlace,
-  onPlayAgain,
-  onBackToMain,
-}: EndScreenProps) {
+  const sortedPlayers = useMemo(
+    () => [...players].sort((a, b) => b.score - a.score),
+    [players],
+  );
+
+  const { firstPlace, secondPlace, thirdPlace } = useMemo(() => {
+    const rankedGroups: RankedGroup[] = [];
+    sortedPlayers.forEach((player) => {
+      const existing = rankedGroups.find((g) => g.score === player.score);
+      if (existing) {
+        existing.players.push(player);
+      } else {
+        rankedGroups.push({
+          rank: rankedGroups.length + 1,
+          score: player.score,
+          players: [player],
+        });
+      }
+    });
+
+    return {
+      firstPlace: rankedGroups.find((g) => g.rank === 1),
+      secondPlace: rankedGroups.find((g) => g.rank === 2),
+      thirdPlace: rankedGroups.find((g) => g.rank === 3),
+    };
+  }, [sortedPlayers]);
+
+  const handlePlayAgain = () => socket.emit("playAgain");
+
   return (
     <div className="w-full min-h-screen flex flex-col items-center justify-center p-4 gap-5 overflow-hidden">
       <div className="text-center shrink-0">
@@ -27,7 +43,8 @@ export function EndScreen({
           Game Finished!
         </h1>
         <p className="text-white/60 text-xs sm:text-sm mt-1">
-          Here are the final standings of room <span className="font-mono font-bold text-white">{roomId}</span>
+          Here are the final standings of room{" "}
+          <span className="font-mono font-bold text-white">{roomId}</span>
         </p>
       </div>
 
@@ -36,15 +53,23 @@ export function EndScreen({
           <div className="flex flex-col items-center flex-1">
             <div className="text-center mb-2 min-h-[48px] flex flex-col justify-end">
               {secondPlace.players.map((p) => (
-                <span key={p.id} className="font-bold text-sm block truncate max-w-[80px]" style={{ color: p.color }}>
+                <span
+                  key={p.id}
+                  className="font-bold text-sm block truncate max-w-[80px]"
+                  style={{ color: p.color }}
+                >
                   {p.name}
                 </span>
               ))}
-              <span className="text-slate-300 font-mono text-[10px] font-semibold">{secondPlace.score} pts</span>
+              <span className="text-slate-300 font-mono text-[10px] font-semibold">
+                {secondPlace.score} pts
+              </span>
             </div>
             <div className="w-full bg-slate-400/25 border-t border-x border-slate-300/30 rounded-t-xl h-24 flex flex-col items-center justify-center shadow-lg backdrop-blur-xs">
               <span className="text-3xl font-extrabold text-slate-300">2</span>
-              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-1">Silver</span>
+              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-1">
+                Silver
+              </span>
             </div>
           </div>
         ) : (
@@ -56,15 +81,25 @@ export function EndScreen({
             <div className="text-center mb-2 min-h-[48px] flex flex-col justify-end items-center">
               <span className="text-xl animate-bounce mb-1">👑</span>
               {firstPlace.players.map((p) => (
-                <span key={p.id} className="font-black text-base block truncate max-w-[90px]" style={{ color: p.color }}>
+                <span
+                  key={p.id}
+                  className="font-black text-base block truncate max-w-[90px]"
+                  style={{ color: p.color }}
+                >
                   {p.name}
                 </span>
               ))}
-              <span className="text-yellow-300 font-mono text-[10px] font-bold">{firstPlace.score} pts</span>
+              <span className="text-yellow-300 font-mono text-[10px] font-bold">
+                {firstPlace.score} pts
+              </span>
             </div>
             <div className="w-full bg-yellow-500/25 border-t-2 border-x border-yellow-300/40 rounded-t-xl h-32 flex flex-col items-center justify-center shadow-xl backdrop-blur-xs">
-              <span className="text-4xl font-black text-yellow-300 drop-shadow-md">1</span>
-              <span className="text-[9px] text-yellow-400 font-extrabold uppercase tracking-widest mt-1">Winner</span>
+              <span className="text-4xl font-black text-yellow-300 drop-shadow-md">
+                1
+              </span>
+              <span className="text-[9px] text-yellow-400 font-extrabold uppercase tracking-widest mt-1">
+                Winner
+              </span>
             </div>
           </div>
         ) : (
@@ -75,15 +110,23 @@ export function EndScreen({
           <div className="flex flex-col items-center flex-1">
             <div className="text-center mb-2 min-h-[48px] flex flex-col justify-end">
               {thirdPlace.players.map((p) => (
-                <span key={p.id} className="font-bold text-xs block truncate max-w-[80px]" style={{ color: p.color }}>
+                <span
+                  key={p.id}
+                  className="font-bold text-xs block truncate max-w-[80px]"
+                  style={{ color: p.color }}
+                >
                   {p.name}
                 </span>
               ))}
-              <span className="text-amber-500 font-mono text-[10px] font-semibold">{thirdPlace.score} pts</span>
+              <span className="text-amber-500 font-mono text-[10px] font-semibold">
+                {thirdPlace.score} pts
+              </span>
             </div>
             <div className="w-full bg-amber-700/25 border-t border-x border-amber-500/30 rounded-t-xl h-20 flex flex-col items-center justify-center shadow-md backdrop-blur-xs">
               <span className="text-2xl font-extrabold text-amber-500">3</span>
-              <span className="text-[9px] text-amber-600/80 font-bold uppercase tracking-widest mt-1">Bronze</span>
+              <span className="text-[9px] text-amber-600/80 font-bold uppercase tracking-widest mt-1">
+                Bronze
+              </span>
             </div>
           </div>
         ) : (
@@ -141,13 +184,13 @@ export function EndScreen({
 
       <div className="flex gap-3 w-full max-w-sm shrink-0">
         <button
-          onClick={onPlayAgain}
+          onClick={handlePlayAgain}
           className="flex-1 py-3.5 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-white font-black text-sm rounded-xl transition-all shadow-lg shadow-emerald-950/20 cursor-pointer"
         >
           🔄 Play Again
         </button>
         <button
-          onClick={onBackToMain}
+          onClick={leaveRoom}
           className="flex-1 py-3.5 bg-white/10 hover:bg-white/20 border border-white/20 active:scale-95 text-white font-black text-sm rounded-xl transition-all cursor-pointer"
         >
           🏠 Home Menu

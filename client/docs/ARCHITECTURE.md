@@ -12,7 +12,8 @@ Detailed architectural documentation for the Scribble React 19 + TypeScript + Vi
                                   └─────────────┬─────────────┘
                                                 │
                                   ┌─────────────▼─────────────┐
-                                  │     App.tsx Controller    │
+                                  │   App.tsx (GameProvider)  │
+                                  │   reads state.screen only │
                                   └─────────────┬─────────────┘
                                                 │
          ┌──────────────────────────────┼──────────────────────────────┐
@@ -53,30 +54,87 @@ The client implements a dual-layout responsive system tailored for mobile and de
 
 ---
 
+## 🗂 State Management
+
+Shared game state lives in `src/state/` and is consumed via the `useGame()` hook. Screens do not receive shared state as props.
+
+```
+Socket events (GameContext)
+        │
+        ▼ dispatch(Action)
+  gameReducer(state, action)
+        │
+        ▼
+   GameState in Context
+        │
+        ▼ useGame()
+  Screens / derived useMemo
+```
+
+### `gameReducer.ts`
+
+Pure reducer — one `Action` type per socket event or state transition:
+
+| Action | Trigger |
+| :--- | :--- |
+| `JOINED_ROOM_SUCCESS` | `joinedRoomSuccess` |
+| `PLAYERS_UPDATED` | `playersUpdate` |
+| `ROUND_STARTED` | `roundStart` |
+| `STROKE_REPLAY` | `strokeReplay` |
+| `YOUR_WORD` | `yourWord` |
+| `ROUND_ENDED` / `CLEAR_ROUND_END` | `roundEnd` (+ 2.6s timeout) |
+| `WAITING_FOR_PLAYERS` | `waitingForPlayers` |
+| `HOST_CHANGED` | `hostChanged` |
+| `SHOW_NOTICE` / `CLEAR_NOTICE` | `notice`, `playerLeft`, host-change toasts |
+| `GAME_FINISHED` | `gameFinished` |
+| `PLAY_AGAIN` | `playAgain` |
+| `RESET_TO_HOME` | `leaveRoom` handler |
+
+`GameState` fields: `screen`, `roomId`, `isHost`, `hostId`, `players`, `myColor`, `drawerId`, `drawerName`, `roomStatus`, `word`, `wordLength`, `replayStrokes`, `roundEndInfo`, `noticeMsg`.
+
+Derived values (`isDrawer`, `role`, `wordChars`, `sortedPlayers`, podium groups) are computed with `useMemo` in the screen that needs them — not stored in the reducer.
+
+### `GameContext.tsx`
+
+- Wraps the app with `useReducer(gameReducer, initialGameState)`.
+- Registers global socket listeners; each handler `dispatch`es the matching action.
+- Exports `useGame()` → `{ state, dispatch, showNotice, leaveRoom }`.
+
+### Screen-local state (stays in `useState`)
+
+| Screen | Local state |
+| :--- | :--- |
+| `HomeScreen` | `name`, `joinCode`, `urlRoomCode`, `homeError` |
+| `LobbyScreen` | `copied` (invite link feedback) |
+
+`HomeScreen` also owns socket listeners for `roomNotFound` and `roomFull` (home-only errors).
+
+---
+
 ## ⚡ Client Socket Event Listeners
 
 | Socket Event | Trigger Payload | Client Action / Handler |
 | :--- | :--- | :--- |
-| `joinedRoomSuccess` | `{ roomId, isHost, color }` | Transitions screen to `"gameLobby"`, sets room details, host status, and assigned color avatar. |
-| `roomNotFound` | `{ message }` | Renders error notification on home screen. |
-| `roomFull` | `{ message }` | Renders room full error notification on home screen. |
-| `playersUpdate` | `{ players, hostId, status, drawerId }` | Updates live player list, scores, host badge, and drawer status. |
-| `roundStart` | `{ drawerId, drawerName, wordLength }` | Clears canvas, updates drawer role UI, resets round state, sets screen to `"game"`. |
-| `yourWord` | `{ word }` | Renders secret target word for the active drawer only. |
-| `strokeBroadcast` | `{ prevX, prevY, x, y }` | Renders live incoming stroke onto 2D canvas context. |
-| `strokeReplay` | `{ strokes: [] }` | Replays the full history of the current round's drawings to a late joiner. |
-| `canvasCleared` | `(none)` | Clears the 2D canvas context. |
-| `guessBlocked` | `{ text }` | Displays warning feedback if drawer attempts to type secret word. |
-| `chatMessage` | `{ text, senderId, senderName }` | Appends chat message to `ChatLog`. |
-| `guessResult` | `{ text, senderId, senderName, correct }` | Appends guess outcome to `ChatLog` (styled green if correct). |
-| `roundEnd` | `{ correctWord, winnerName }` | Displays round winner toast overlay. |
-| `gameFinished` | `{ players }` | Transition to the `"finished"` screen showing podium standings. |
-| `playAgain` | `(none)` | Resets room status to `"waiting"`, wipes drawer status, and returns all players to the `"gameLobby"`. |
-| `waitingForPlayers` | `{ count, min, reason? }` | Resets `roomStatus` to `"waiting"`, clears drawer and word. If `reason === "player_left"`, returns players to `"gameLobby"` and shows notice toast. |
-| `notice` | `{ message }` | Displays floating alert notice toast. |
-| `playerJoined` | `{ id, name }` | Appends joined notification to `ChatLog`. |
-| `playerLeft` | `{ id, name }` | Displays disconnection alert toast and appends left notification to `ChatLog`. |
-| `hostChanged` | `{ newHostId, newHostName }` | Updates host information and appends crown transfer notification to `ChatLog`. |
+| `joinedRoomSuccess` | `{ roomId, isHost, color }` | `dispatch(JOINED_ROOM_SUCCESS)` — transitions to `"gameLobby"`. |
+| `roomNotFound` | `{ message }` | `HomeScreen` local error state. |
+| `roomFull` | `{ message }` | `HomeScreen` local error state. |
+| `playersUpdate` | `{ players, hostId, status, drawerId }` | `dispatch(PLAYERS_UPDATED)` — updates roster, host, drawer; sets screen to `"game"` if in progress. |
+| `roundStart` | `{ drawerId, drawerName, wordLength }` | `dispatch(ROUND_STARTED)` — clears round state, sets screen to `"game"`. |
+| `yourWord` | `{ word }` | `dispatch(YOUR_WORD)` — secret word for drawer only. |
+| `strokeBroadcast` | `{ prevX, prevY, x, y }` | Handled in `Canvas.tsx` — renders live stroke (guessers). |
+| `strokeReplay` | `{ strokes: [] }` | `dispatch(STROKE_REPLAY)` — late-joiner canvas replay. |
+| `canvasCleared` | `(none)` | Handled in `Canvas.tsx` — clears 2D context. |
+| `guessBlocked` | `{ text }` | Handled in `GuessForm.tsx` — drawer cheat warning. |
+| `chatMessage` | `{ text, senderId, senderName }` | Appended in `ChatLog.tsx`. |
+| `guessResult` | `{ text, senderId, senderName, correct }` | Appended in `ChatLog.tsx` (green if correct). |
+| `roundEnd` | `{ correctWord, winnerName }` | `dispatch(ROUND_ENDED)` + auto-clear after 2.6s. |
+| `gameFinished` | `{ players }` | `dispatch(GAME_FINISHED)` — transitions to `"finished"`. |
+| `playAgain` | `(none)` | `dispatch(PLAY_AGAIN)` — returns to `"gameLobby"`. |
+| `waitingForPlayers` | `{ count, min, reason? }` | `dispatch(WAITING_FOR_PLAYERS)`; notice toast if `reason === "player_left"`. |
+| `notice` | `{ message }` | `showNotice()` toast. |
+| `playerJoined` | `{ id, name }` | Appended in `ChatLog.tsx`. |
+| `playerLeft` | `{ id, name }` | `showNotice()` toast + `ChatLog.tsx` entry. |
+| `hostChanged` | `{ newHostId, newHostName }` | `dispatch(HOST_CHANGED)` + crown transfer toast. |
 
 ---
 
@@ -94,8 +152,8 @@ On the finished screen:
 ## 🔗 URL Invite Flow
 
 When a user opens a shareable invitation link (`?room=XYZ123`):
-1. `useEffect` reads `new URLSearchParams(window.location.search).get("room")` on mount.
-2. Sets `urlRoomCode` state to the extracted code.
+1. `HomeScreen` reads `new URLSearchParams(window.location.search).get("room")` on mount.
+2. Sets local `urlRoomCode` and `joinCode` state to the extracted code.
 3. Lobby renders a **dedicated invite card** showing only:
    - The invited room code (`ROOM: XYZ123`).
    - Name input.

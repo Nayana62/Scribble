@@ -19,9 +19,10 @@ High-level overview of how the Scribble client and server work together. For dee
 scribble/
 ├── client/                  # React frontend
 │   ├── src/
-│   │   ├── App.tsx          # Screen router (home / lobby / game / end)
-│   │   ├── hooks/
-│   │   │   └── useSocketEvents.ts   # Shared state + socket listeners
+│   │   ├── App.tsx          # Screen router (reads state.screen only)
+│   │   ├── state/
+│   │   │   ├── gameReducer.ts   # GameState, Action types, pure reducer
+│   │   │   └── GameContext.tsx  # GameProvider, socket listeners, useGame()
 │   │   ├── screens/         # HomeScreen, LobbyScreen, GameScreen, EndScreen
 │   │   ├── app/components/  # Canvas, PlayerList, ChatPanel, GuessForm
 │   │   ├── socket.ts        # Socket.IO client singleton
@@ -40,13 +41,14 @@ scribble/
 ## Client Flow
 
 ```
-main.tsx → App.tsx (screen router)
-              ├── HomeScreen        name, create/join room
+main.tsx → App.tsx (GameProvider + screen router)
+              ├── HomeScreen        name, create/join room (local UI state)
               ├── LobbyScreen       player list, start game
               ├── GameScreen        canvas + player list + chat
               └── EndScreen         podium, scoreboard, play again
 
-useSocketEvents.ts — all socket.on/off listeners, shared state, emit handlers
+GameContext.tsx — socket.on/off listeners dispatch actions to gameReducer
+Screens call useGame() for shared state; screen-local UI state stays in useState
 ```
 
 Screen state: `home` → `gameLobby` → `game` → `finished`

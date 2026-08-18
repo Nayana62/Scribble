@@ -12,7 +12,7 @@ React + TypeScript frontend for the Scribble multiplayer drawing and guessing ga
 | Build Tool | Vite |
 | Styling | Tailwind CSS v4 |
 | Realtime | Socket.IO Client |
-| State | React `useState` / `useEffect` (no external store) |
+| State | React Context + `useReducer` (`GameProvider` / `gameReducer`) |
 
 ---
 
@@ -22,7 +22,15 @@ React + TypeScript frontend for the Scribble multiplayer drawing and guessing ga
 client/
 ├── src/
 │   ├── main.tsx                     # React root entry point
-│   ├── App.tsx                      # Top-level state, screen router, socket event handlers
+│   ├── App.tsx                      # GameProvider wrapper + screen router
+│   ├── state/
+│   │   ├── gameReducer.ts           # GameState, Action union, pure reducer
+│   │   └── GameContext.tsx          # GameProvider, socket listeners, useGame()
+│   ├── screens/
+│   │   ├── HomeScreen.tsx           # Name input, create/join room
+│   │   ├── LobbyScreen.tsx          # Player list, invite link, start game
+│   │   ├── GameScreen.tsx           # Canvas + player list + chat layout
+│   │   └── EndScreen.tsx            # Podium, scoreboard, play again
 │   ├── socket.ts                    # Single shared Socket.IO client instance
 │   ├── types.ts                     # Shared TypeScript interfaces (Player, etc.)
 │   ├── index.css                    # Global styles & Tailwind imports
@@ -71,7 +79,8 @@ npm run preview    # Preview the production build locally
 
 ## Key Features
 
-- **Screen routing** — `home` → `gameLobby` → `game` → `finished`, managed in `App.tsx` state with no router library
+- **Screen routing** — `home` → `gameLobby` → `game` → `finished`, driven by `state.screen` from `useGame()` (no router library)
+- **Shared state** — `GameProvider` + `gameReducer` hold room/game state; screens consume via `useGame()` instead of prop drilling
 - **Shareable invite links** — `?room=CODE` query param auto-fills the join flow; URL is cleaned up on leave
 - **Sequential drawer rotation** — players draw in join order, cycling for 3 full rounds before game ends
 - **Scoring** — correct guesser +50 pts, drawer +20 pts per successful guess

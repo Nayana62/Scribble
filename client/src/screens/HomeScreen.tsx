@@ -1,26 +1,84 @@
-type HomeScreenProps = {
-  name: string;
-  saveName: (val: string) => void;
-  joinCode: string;
-  setJoinCode: (val: string) => void;
-  urlRoomCode: string;
-  setUrlRoomCode: (val: string) => void;
-  homeError: string;
-  onCreateRoom: () => void;
-  onJoinRoom: (code: string) => void;
-};
+import { useEffect, useState } from "react";
+import { socket } from "../socket";
+import type { NoticePayload } from "../types";
 
-export function HomeScreen({
-  name,
-  saveName,
-  joinCode,
-  setJoinCode,
-  urlRoomCode,
-  setUrlRoomCode,
-  homeError,
-  onCreateRoom,
-  onJoinRoom,
-}: HomeScreenProps) {
+export function HomeScreen() {
+  const [name, setName] = useState<string>(
+    () => localStorage.getItem("scribble_name") || "",
+  );
+  const [joinCode, setJoinCode] = useState<string>("");
+  const [urlRoomCode, setUrlRoomCode] = useState<string>("");
+  const [homeError, setHomeError] = useState<string>("");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const roomParam = params.get("room");
+    if (roomParam) {
+      const code = roomParam.trim().toUpperCase();
+      setUrlRoomCode(code);
+      setJoinCode(code);
+    }
+  }, []);
+
+  useEffect(() => {
+    const showHomeError = (msg: string) => {
+      setHomeError(msg);
+      setTimeout(() => setHomeError(""), 4000);
+    };
+
+    socket.on("roomNotFound", ({ message }: NoticePayload) => {
+      showHomeError(message);
+    });
+
+    socket.on("roomFull", ({ message }: NoticePayload) => {
+      showHomeError(message);
+    });
+
+    return () => {
+      socket.off("roomNotFound");
+      socket.off("roomFull");
+    };
+  }, []);
+
+  const saveName = (val: string) => {
+    setName(val);
+    localStorage.setItem("scribble_name", val);
+  };
+
+  const showHomeError = (msg: string) => {
+    setHomeError(msg);
+    setTimeout(() => setHomeError(""), 4000);
+  };
+
+  const handleCreateRoom = () => {
+    if (!name.trim()) {
+      showHomeError("Enter your name first!");
+      return;
+    }
+    socket.emit("createRoom", { name: name.trim() });
+  };
+
+  const handleJoinRoom = (code: string) => {
+    if (!name.trim()) {
+      showHomeError("Enter your name first!");
+      return;
+    }
+    const clean = code.trim().toUpperCase();
+    if (!clean) {
+      showHomeError("Enter a room code!");
+      return;
+    }
+    socket.emit("joinRoom", { roomId: clean, name: name.trim() });
+  };
+
+  const clearInviteLink = () => {
+    setUrlRoomCode("");
+    setJoinCode("");
+    if (window.location.search) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  };
+
   return (
     <div className="w-full min-h-screen flex flex-col justify-center items-center p-4 gap-6">
       <h1 className="text-6xl sm:text-8xl font-semibold tracking-tight bg-gradient-to-r from-red-400 via-yellow-300 via-green-400 via-cyan-400 to-purple-400 bg-clip-text text-transparent drop-shadow-xl select-none">
@@ -55,24 +113,14 @@ export function HomeScreen({
             </div>
 
             <button
-              onClick={() => onJoinRoom(urlRoomCode)}
+              onClick={() => handleJoinRoom(urlRoomCode)}
               className="w-full py-4 bg-blue-500 hover:bg-blue-400 active:scale-95 text-white font-black text-lg rounded-xl transition-all shadow-lg"
             >
               JOIN ROOM
             </button>
 
             <button
-              onClick={() => {
-                setUrlRoomCode("");
-                setJoinCode("");
-                if (window.location.search) {
-                  window.history.replaceState(
-                    {},
-                    document.title,
-                    window.location.pathname,
-                  );
-                }
-              }}
+              onClick={clearInviteLink}
               className="text-white/40 hover:text-white/70 text-xs text-center underline transition-colors"
             >
               ← Back to main menu
@@ -96,7 +144,7 @@ export function HomeScreen({
 
             <div className="flex flex-col gap-2 mt-1">
               <button
-                onClick={onCreateRoom}
+                onClick={handleCreateRoom}
                 className="w-full py-4 bg-blue-500 hover:bg-blue-400 active:scale-95 text-white font-black text-base rounded-xl transition-all shadow-lg"
               >
                 ✦ Create Room
@@ -118,7 +166,7 @@ export function HomeScreen({
                   className="flex-1 min-w-0 bg-white/15 border border-white/25 text-white placeholder-white/35 font-mono font-bold text-center tracking-widest rounded-xl px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-400/60 uppercase"
                 />
                 <button
-                  onClick={() => onJoinRoom(joinCode)}
+                  onClick={() => handleJoinRoom(joinCode)}
                   className="bg-indigo-500 hover:bg-indigo-400 active:scale-95 text-white font-bold px-5 py-3 rounded-xl transition-all"
                 >
                   Join

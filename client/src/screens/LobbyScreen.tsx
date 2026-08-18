@@ -1,31 +1,25 @@
+import { useState } from "react";
 import { socket } from "../socket";
-import type { Player } from "../types";
+import { useGame } from "../state/GameContext";
 
-type LobbyScreenProps = {
-  roomId: string;
-  players: Player[];
-  hostId: string | null;
-  isHost: boolean;
-  hostPlayer: Player | undefined;
-  copied: boolean;
-  noticeMsg: string;
-  onCopyRoomLink: () => void;
-  onStartGame: () => void;
-  onBackToMain: () => void;
-};
+export function LobbyScreen() {
+  const { state, leaveRoom } = useGame();
+  const { roomId, players, hostId, isHost, noticeMsg } = state;
+  const [copied, setCopied] = useState(false);
 
-export function LobbyScreen({
-  roomId,
-  players,
-  hostId,
-  isHost,
-  hostPlayer,
-  copied,
-  noticeMsg,
-  onCopyRoomLink,
-  onStartGame,
-  onBackToMain,
-}: LobbyScreenProps) {
+  const hostPlayer = players.find((p) => p.id === hostId);
+
+  const copyRoomLink = () => {
+    const clientBase =
+      import.meta.env.VITE_CLIENT_URL || window.location.origin;
+    const url = `${clientBase}?room=${roomId}`;
+    navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  };
+
+  const handleStartGame = () => socket.emit("startGame");
+
   return (
     <div className="w-full min-h-screen flex flex-col justify-center items-center p-4 gap-5">
       <h1 className="text-6xl sm:text-8xl font-semibold tracking-tight bg-gradient-to-r from-red-400 via-yellow-300 via-green-400 via-cyan-400 to-purple-400 bg-clip-text text-transparent drop-shadow-xl select-none">
@@ -54,7 +48,7 @@ export function LobbyScreen({
         </div>
 
         <button
-          onClick={onCopyRoomLink}
+          onClick={copyRoomLink}
           className={`w-full py-3 font-extrabold text-sm rounded-xl transition-all active:scale-95 ${
             copied
               ? "bg-emerald-500/80 text-white"
@@ -103,7 +97,7 @@ export function LobbyScreen({
         {isHost ? (
           <div className="flex flex-col gap-2">
             <button
-              onClick={onStartGame}
+              onClick={handleStartGame}
               disabled={players.length < 2}
               className={`w-full py-4 font-black text-lg rounded-xl transition-all active:scale-95 ${
                 players.length >= 2
@@ -130,7 +124,7 @@ export function LobbyScreen({
         )}
 
         <button
-          onClick={onBackToMain}
+          onClick={leaveRoom}
           className="text-white/40 hover:text-white/70 text-[11px] text-center underline transition-colors cursor-pointer mt-1"
         >
           ← Leave Room & Back to Home

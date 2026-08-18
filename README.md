@@ -49,7 +49,7 @@ A real-time multiplayer drawing and guessing game. One player draws a secret wor
 | Runtime  | React 19 + TypeScript           | Node.js              |
 | Build    | Vite + Tailwind CSS v4          | —                    |
 | Realtime | Socket.IO Client                | Socket.IO + Express  |
-| State    | React hooks (`useSocketEvents`) | In-memory room `Map` |
+| State    | React Context + `useReducer` (`GameProvider`) | In-memory room `Map` |
 
 ---
 
