@@ -64,7 +64,7 @@ export function Timer({ endsAt, durationSec }: Props) {
 
   const totalMs = durationSec * 1000;
   const fraction = totalMs > 0 ? remaining / totalMs : 0;
-  const seconds = Math.ceil(remaining / 1000);
+  const seconds = Math.min(durationSec, Math.ceil(remaining / 1000));
 
   // Stroke offset: full circle when fraction=1, empty when fraction=0.
   const dashOffset = CIRCUMFERENCE * (1 - fraction);

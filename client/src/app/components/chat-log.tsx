@@ -170,7 +170,7 @@ export const ChatLog = ({ players }: Props) => {
   return (
     <div
       ref={messagesRef}
-      className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-2 space-y-1"
+      className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-1 space-y-1"
     >
       {entries.map((entry) => {
         if (entry.type === "system") {

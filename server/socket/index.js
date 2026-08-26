@@ -281,7 +281,7 @@ module.exports = function(io) {
             return;
           }
           triggerChoosingPhase(roomId, current);
-        }, 3000);
+        }, 2000);
       } else {
         triggerChoosingPhase(roomId, room);
       }

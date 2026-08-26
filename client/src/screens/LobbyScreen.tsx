@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { socket } from "../socket";
 import { useGame } from "../state/GameContext";
+import { HostBadge } from "../app/components/host-badge";
 
 export function LobbyScreen() {
   const { state, leaveRoom } = useGame();
@@ -84,10 +85,8 @@ export function LobbyScreen() {
                     you
                   </span>
                 )}
-                {isThisHost && (
-                  <span title="Host" className="text-base leading-none">
-                    👑
-                  </span>
+                 {isThisHost && (
+                  <HostBadge />
                 )}
               </div>
             );

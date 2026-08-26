@@ -1,5 +1,6 @@
 import { socket } from "@/socket";
 import type { Player } from "@/types";
+import { HostBadge } from "./host-badge";
 
 type Props = {
   players: Player[];
@@ -68,9 +69,7 @@ export function PlayerList({ players, hostId, drawerId, correctGuessers = [] }: 
               {/* Role icons — right side */}
               <div className="flex items-center gap-1.5 shrink-0">
                 {isHost && (
-                  <span className="bg-blue-500 text-white text-[9px] font-extrabold px-1.5 py-0.5 rounded-full uppercase tracking-wider select-none">
-                    Host
-                  </span>
+                  <HostBadge />
                 )}
                 {isDrawer && (
                   <span
