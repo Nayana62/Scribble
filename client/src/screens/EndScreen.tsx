@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { socket } from "../socket";
 import { useGame } from "../state/GameContext";
 import type { RankedGroup } from "../types";
@@ -6,6 +6,7 @@ import type { RankedGroup } from "../types";
 export function EndScreen() {
   const { state, leaveRoom } = useGame();
   const { roomId, players } = state;
+  const [playAgainError, setPlayAgainError] = useState<string>("");
 
   const sortedPlayers = useMemo(
     () => [...players].sort((a, b) => b.score - a.score),
@@ -34,10 +35,28 @@ export function EndScreen() {
     };
   }, [sortedPlayers]);
 
-  const handlePlayAgain = () => socket.emit("playAgain");
+  const handlePlayAgain = () => {
+    setPlayAgainError("");
+    const timeoutHandle = setTimeout(() => {
+      setPlayAgainError("Server didn't respond — try again.");
+    }, 5000);
+
+    socket.emit("playAgain", (ack: { success?: boolean; error?: string }) => {
+      clearTimeout(timeoutHandle);
+      if (ack?.error === "NOT_HOST") {
+        setPlayAgainError("Only the host can start a new game.");
+      } else if (ack?.error === "INVALID_STATE") {
+        setPlayAgainError("The game hasn't finished yet.");
+      } else if (ack?.error) {
+        setPlayAgainError("Something went wrong — try again.");
+      }
+      // On success the server broadcasts `playAgain` to all clients
+      // which dispatches PLAY_AGAIN in the reducer — no extra handling needed here.
+    });
+  };
 
   return (
-    <div className="w-full min-h-screen flex flex-col items-center justify-center p-4 gap-5 overflow-hidden">
+    <div className="w-full h-dvh md:h-screen flex flex-col items-center justify-center p-4 gap-5 overflow-hidden">
       <div className="text-center shrink-0">
         <h1 className="text-3xl sm:text-4xl font-black text-white uppercase tracking-wider drop-shadow-md">
           Game Finished!
@@ -51,11 +70,11 @@ export function EndScreen() {
       <div className="flex items-end justify-center gap-4 sm:gap-6 mt-4 w-full max-w-sm shrink-0 px-2">
         {secondPlace ? (
           <div className="flex flex-col items-center flex-1">
-            <div className="text-center mb-2 min-h-[48px] flex flex-col justify-end">
+            <div className="text-center mb-2 min-h-12 flex flex-col justify-end">
               {secondPlace.players.map((p) => (
                 <span
                   key={p.id}
-                  className="font-bold text-sm block truncate max-w-[80px]"
+                  className="font-bold text-sm block truncate max-w-20"
                   style={{ color: p.color }}
                 >
                   {p.name}
@@ -182,19 +201,26 @@ export function EndScreen() {
         </div>
       </div>
 
-      <div className="flex gap-3 w-full max-w-sm shrink-0">
-        <button
-          onClick={handlePlayAgain}
-          className="flex-1 py-3.5 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-white font-black text-sm rounded-xl transition-all shadow-lg shadow-emerald-950/20 cursor-pointer"
-        >
-          🔄 Play Again
-        </button>
-        <button
-          onClick={leaveRoom}
-          className="flex-1 py-3.5 bg-white/10 hover:bg-white/20 border border-white/20 active:scale-95 text-white font-black text-sm rounded-xl transition-all cursor-pointer"
-        >
-          🏠 Home Menu
-        </button>
+      <div className="flex gap-3 w-full max-w-sm shrink-0 flex-col">
+        <div className="flex gap-3">
+          <button
+            onClick={handlePlayAgain}
+            className="flex-1 py-3.5 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-white font-black text-sm rounded-xl transition-all shadow-lg shadow-emerald-950/20 cursor-pointer"
+          >
+            🔄 Play Again
+          </button>
+          <button
+            onClick={leaveRoom}
+            className="flex-1 py-3.5 bg-white/10 hover:bg-white/20 border border-white/20 active:scale-95 text-white font-black text-sm rounded-xl transition-all cursor-pointer"
+          >
+            🏠 Home Menu
+          </button>
+        </div>
+        {playAgainError && (
+          <p className="text-red-300 text-xs text-center font-semibold bg-red-900/30 border border-red-500/30 rounded-xl px-3 py-2">
+            {playAgainError}
+          </p>
+        )}
       </div>
     </div>
   );

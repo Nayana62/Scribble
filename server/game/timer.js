@@ -6,7 +6,15 @@
  * and fires `onExpire` once when a countdown reaches zero.
  */
 
-/** @type {Map<string, { handle: ReturnType<typeof setTimeout>; endsAt: number }>} */
+/**
+ * @type {Map<string, {
+ *   handle: ReturnType<typeof setTimeout>;
+ *   endsAt: number;
+ *   paused?: boolean;
+ *   remainingMs?: number;
+ *   onExpire?: Function;
+ * }>}
+ */
 const timers = new Map();
 
 const TIMER_KINDS = ["choosing", "drawing", "announcement"];
@@ -62,6 +70,67 @@ function getEndsAt(roomId, kind = "drawing") {
   return entry ? entry.endsAt : null;
 }
 
+/**
+ * Pause an active timer, freezing remaining time.
+ * Safe to call even if the timer doesn't exist (no-op).
+ *
+ * @param {string} roomId
+ * @param {'choosing'|'drawing'} kind
+ */
+function pauseTimer(roomId, kind) {
+  const key = timerKey(roomId, kind);
+  const entry = timers.get(key);
+  if (!entry || entry.paused) return;
+
+  clearTimeout(entry.handle);
+  const remainingMs = Math.max(0, entry.endsAt - Date.now());
+  timers.set(key, {
+    ...entry,
+    handle: null,
+    paused: true,
+    remainingMs,
+  });
+}
+
+/**
+ * Resume a previously paused timer with its remaining duration.
+ * If the timer was not paused, this is a no-op.
+ *
+ * @param {string} roomId
+ * @param {'choosing'|'drawing'} kind
+ * @param {Function} onExpire  The callback to fire on expiry (same as original).
+ */
+function resumeTimer(roomId, kind, onExpire) {
+  const key = timerKey(roomId, kind);
+  const entry = timers.get(key);
+  if (!entry || !entry.paused) return;
+
+  const remainingMs = entry.remainingMs ?? 0;
+  if (remainingMs <= 0) {
+    timers.delete(key);
+    onExpire();
+    return;
+  }
+
+  const endsAt = Date.now() + remainingMs;
+  const handle = setTimeout(() => {
+    timers.delete(key);
+    onExpire();
+  }, remainingMs);
+
+  timers.set(key, { handle, endsAt, paused: false });
+}
+
+/**
+ * @param {string} roomId
+ * @param {'choosing'|'drawing'} kind
+ * @returns {boolean}
+ */
+function isTimerPaused(roomId, kind) {
+  const entry = timers.get(timerKey(roomId, kind));
+  return !!(entry && entry.paused);
+}
+
 /** @deprecated alias — starts the draw-round timer */
 function startRoundTimer(roomId, durationSec, onExpire) {
   startTimer(roomId, "drawing", durationSec, onExpire);
@@ -77,6 +146,9 @@ module.exports = {
   clearTimer,
   clearAllTimers,
   getEndsAt,
+  pauseTimer,
+  resumeTimer,
+  isTimerPaused,
   startRoundTimer,
   clearRoundTimer,
 };

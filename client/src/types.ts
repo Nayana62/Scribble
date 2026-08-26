@@ -9,7 +9,7 @@ export type Screen = "home" | "gameLobby" | "game" | "finished";
 
 export type Role = "drawer" | "guesser";
 
-export type RoomStatus = "waiting" | "in_progress";
+export type RoomStatus = "waiting" | "in_progress" | "finished";
 
 export type RoundPhase = "announcement" | "choosing" | "drawing";
 
@@ -75,6 +75,8 @@ export type JoinedRoomSuccessPayload = {
   roomId: string;
   isHost: boolean;
   color: string;
+  /** Opaque per-player-per-room identity token. Store in sessionStorage. */
+  token: string;
 };
 
 export type PlayersUpdatePayload = {
@@ -170,3 +172,25 @@ export type RankedGroup = {
   score: number;
   players: Player[];
 };
+
+/**
+ * Snapshot of room state returned by the server on a successful `rejoin` ack.
+ * Used to hydrate the client from scratch after a reconnect.
+ */
+export type RoomSnapshot = {
+  players: Player[];
+  hostId: string | null;
+  status: RoomStatus;
+  drawerId: string | null;
+  roundPhase: RoundPhase | null;
+  wordLength: number | null;
+  wordHint: string | null;
+  endsAt: number | null;
+  choosingEndsAt: number | null;
+  cycleNumber: number | null;
+};
+
+/** Ack payload for the `rejoin` event. */
+export type RejoinAckPayload =
+  | { success: true; token: string; snapshot: RoomSnapshot }
+  | { error: "ROOM_NOT_FOUND" | "PLAYER_NOT_FOUND" };

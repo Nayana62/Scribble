@@ -63,7 +63,7 @@ Each room state object in the internal `Map` holds:
 ```javascript
 {
   hostId: string | null,        // current host socket ID
-  players: Map<socketId, { id, name, score, color }>,
+  players: Map<socketId, { id, name, score, color, token }>,
   joinOrder: string[],          // list of socket IDs in chronological join sequence
   drawerId: string | null,      // socket ID of active drawer
   word: string | null,          // target word (plain text)
@@ -114,11 +114,19 @@ The server is decoupled into separate modules separating socket networking from 
 6. **`game/words.js` (Word Repository)**:
    - Word lists and random pick queries.
 7. **`game/timer.js` (Round Timer)**:
-   - Owns all per-room countdown timer state (a `Map<roomId, { handle, endsAt }>`).
+   - Owns all per-room countdown timer state (a `Map<roomId, { handle, endsAt, paused, remainingMs } >`).
    - `startRoundTimer(roomId, durationSec, onExpire)` — starts/restarts a room's countdown.
    - `clearRoundTimer(roomId)` — cancels any pending timeout; called unconditionally by `endRound`.
    - `getEndsAt(roomId)` — returns the epoch-ms expiry for a room, sent to clients in `roundStart` payloads.
-8. **`game/constants.js` (Shared Constants)**:
+   - `pauseTimer(roomId, kind)` — freezes the remaining countdown time.
+   - `resumeTimer(roomId, kind, onExpire)` — restarts the countdown with the saved remaining duration.
+   - `isTimerPaused(roomId, kind)` — returns if a timer is currently paused.
+8. **`game/gracePeriod.js` (Grace Period)**:
+   - Manages room deletion delay timers (`Map<roomId, handle>`).
+   - `startGrace(roomId, durationSec, onExpire)` — registers a deletion timeout when player count hits zero.
+   - `cancelGrace(roomId)` — clears the timeout when a player successfully reconnects/rejoins.
+   - `hasGrace(roomId)` — returns if a grace timer is active.
+9. **`game/constants.js` (Shared Constants)**:
    - `ROUND_DURATION_SEC = 80` — the single source of truth for round duration; will become host-configurable in a future settings feature.
 
 ---
@@ -146,10 +154,13 @@ The server is decoupled into separate modules separating socket networking from 
 | `notice` | `{ message }` | Server notice toast |
 | `playerJoined` | `{ id, name }` | New player in room |
 | `playerLeft` | `{ id, name }` | Player disconnected |
-| `joinedRoomSuccess` | `{ roomId, isHost, color }` | Room join confirmed |
+| `joinedRoomSuccess` | `{ roomId, isHost, color, token }` | Room join confirmed (token used for reconnects) |
 | `roomNotFound` | `{ message }` | Invalid room code |
 | `roomFull` | `{ message }` | Room at capacity |
-| `playAgain` | — | Host restarted the game |
+| `playAgain` | — | Host restarted the game (now ack-based with host/state error responses) |
+| `roomClosed` | `{ reason }` | Sent to clients when room is deleted after grace period expires |
+| `rejoin` (received) | `{ roomId, token }` | Handled via ack; updates socket mapping/room lists and returns room state snapshot |
+| `leaving` (received)| — | Fast disconnect debounce signal sent by client on `pagehide` |
 
 ---
 
@@ -159,7 +170,9 @@ The server is decoupled into separate modules separating socket networking from 
    - All state modifications to `rooms` and `socketRoomMap` occur synchronously on Node's main loop, preventing race conditions during role assignment or guess validation.
 
 2. **Garbage Collection Pruning**:
-   - When a private room's player count drops to zero, `clearRoundTimer(roomId)` cancels any scheduled countdown, and `rooms.delete(roomId)` executes to prevent memory leaks.
+   - When a private room's player count drops to zero, the server starts a 60-second grace timer and pauses any active drawing or choosing timers.
+   - If a player rejoins via `rejoin` within the window, the grace timer is cancelled and the countdown timers are resumed.
+   - If the 60 seconds elapse with no rejoin, `clearAllTimers(roomId)` cancels any paused timeouts, `roomClosed` is broadcast to remaining sockets, and `rooms.delete(roomId)` executes to free memory.
 
 3. **Socket Room Scoping**:
    - Socket.IO's native `.join(roomId)` and `.to(roomId)` primitives ensure zero cross-talk between isolated rooms.

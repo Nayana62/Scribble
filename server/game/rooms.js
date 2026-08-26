@@ -2,13 +2,17 @@ const crypto = require("crypto");
 
 const rooms = new Map();
 const socketRoomMap = new Map();
+/**
+ * Reverse-lookup map: token → roomId.
+ * Maintained in the socket handler alongside the player record's token field.
+ * Allows O(1) lookup on `rejoin` without scanning all rooms.
+ */
+const tokenRoomMap = new Map();
 
 const ROOM_CAPACITY = 12;
 const MIN_PLAYERS = 2;
 
 const PLAYER_COLORS = [
-  "#ef4444", // red
-  "#f97316", // orange
   "#eab308", // yellow
   "#22c55e", // green
   "#14b8a6", // teal
@@ -19,6 +23,8 @@ const PLAYER_COLORS = [
   "#f59e0b", // amber
   "#10b981", // emerald
   "#6366f1", // indigo
+  "#ef4444", // red
+  "#f97316", // orange
 ];
 
 function generateRoomId() {
@@ -29,10 +35,13 @@ function generateRoomId() {
   return id;
 }
 
+/** Generate an opaque per-player-per-room identity token. */
+function generateToken() {
+  return crypto.randomUUID();
+}
+
 function assignColor(room) {
-  const taken = new Set(
-    Array.from(room.players.values()).map((p) => p.color)
-  );
+  const taken = new Set(Array.from(room.players.values()).map((p) => p.color));
   return PLAYER_COLORS.find((c) => !taken.has(c)) ?? PLAYER_COLORS[0];
 }
 
@@ -87,10 +96,12 @@ function initRoom(roomId, hostId) {
 module.exports = {
   rooms,
   socketRoomMap,
+  tokenRoomMap,
   ROOM_CAPACITY,
   MIN_PLAYERS,
   PLAYER_COLORS,
   generateRoomId,
+  generateToken,
   assignColor,
   getPlayersArray,
   initRoom,

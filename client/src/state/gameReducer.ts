@@ -5,6 +5,7 @@ import type {
   RoundPhase,
   DrawAction,
   RoundResultPayload,
+  RoomSnapshot,
 } from "../types";
 
 export type GameState = {
@@ -116,7 +117,18 @@ export type Action =
   | { type: "CLEAR_NOTICE" }
   | { type: "GAME_FINISHED"; players: Player[] }
   | { type: "PLAY_AGAIN" }
-  | { type: "RESET_TO_HOME" };
+  | { type: "RESET_TO_HOME" }
+  | {
+      /** Phase 1: hydrate entire client state from server snapshot after a successful rejoin. */
+      type: "REJOIN_SUCCESS";
+      roomId: string;
+      snapshot: RoomSnapshot;
+      socketId: string | undefined;
+    }
+  | {
+      /** Phase 4: server closed the room (grace period expired or explicit close). */
+      type: "ROOM_CLOSED";
+    };
 
 export function gameReducer(state: GameState, action: Action): GameState {
   switch (action.type) {
@@ -325,6 +337,45 @@ export function gameReducer(state: GameState, action: Action): GameState {
         cycleNumber: null,
         roundResult: null,
         correctGuessers: [],
+      };
+
+    case "REJOIN_SUCCESS": {
+      const { snapshot, socketId } = action;
+      // Determine which screen the player should land on based on room status.
+      let screen: Screen = "gameLobby";
+      if (snapshot.status === "in_progress") screen = "game";
+      else if (snapshot.status === "finished") screen = "finished";
+
+      const isHost = !!(socketId && snapshot.hostId && socketId === snapshot.hostId);
+
+      return {
+        ...state,
+        roomId: action.roomId,
+        screen,
+        isHost,
+        hostId: snapshot.hostId,
+        players: snapshot.players,
+        drawerId: snapshot.drawerId,
+        roomStatus: snapshot.status,
+        roundPhase: snapshot.roundPhase,
+        wordLength: snapshot.wordLength ?? 0,
+        wordHint: snapshot.wordHint ?? "",
+        endsAt: snapshot.endsAt,
+        choosingEndsAt: snapshot.choosingEndsAt,
+        cycleNumber: snapshot.cycleNumber,
+        // Clear transient state that the server will re-push via events.
+        word: "",
+        replayActions: [],
+        roundResult: null,
+        correctGuessers: [],
+        isNewCycle: false,
+        wordOptions: [],
+      };
+    }
+
+    case "ROOM_CLOSED":
+      return {
+        ...initialGameState,
       };
 
     default:

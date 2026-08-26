@@ -92,6 +92,8 @@ Pure reducer — one `Action` type per socket event or state transition:
 | `GAME_FINISHED` | `gameFinished` |
 | `PLAY_AGAIN` | `playAgain` |
 | `RESET_TO_HOME` | `leaveRoom` handler |
+| `REJOIN_SUCCESS` | `rejoin` event success response (re-hydrates client state) |
+| `ROOM_CLOSED` | `roomClosed` event (grace period expired on server) |
 
 `GameState` fields: `screen`, `roomId`, `isHost`, `hostId`, `players`, `myColor`, `drawerId`, `drawerName`, `roomStatus`, `word`, `wordLength`, `wordHint`, `replayActions`, `roundResult`, `noticeMsg`, `endsAt: number | null`, `roundPhase: RoundPhase | null`, `choosingEndsAt: number | null`, `wordOptions: string[]`, `isNewCycle: boolean`, `cycleNumber: number | null`, `correctGuessers: string[]`.
 
@@ -118,9 +120,10 @@ Derived values (`isDrawer`, `role`, `wordChars`, `sortedPlayers`, podium groups)
 
 | Socket Event | Trigger Payload | Client Action / Handler |
 | :--- | :--- | :--- |
-| `joinedRoomSuccess` | `{ roomId, isHost, color }` | `dispatch(JOINED_ROOM_SUCCESS)` — transitions to `"gameLobby"`. |
+| `joinedRoomSuccess` | `{ roomId, isHost, color, token }` | `dispatch(JOINED_ROOM_SUCCESS)` — transitions to `"gameLobby"`, saves `token` in `sessionStorage`. |
 | `roomNotFound` | `{ message }` | `HomeScreen` local error state. |
 | `roomFull` | `{ message }` | `HomeScreen` local error state. |
+| `roomClosed` | `{ reason }` | `dispatch(ROOM_CLOSED)` — clears token, triggers notice, transitions to home view. |
 | `playersUpdate` | `{ players, hostId, status, drawerId }` | `dispatch(PLAYERS_UPDATED)` — updates roster, host, drawer; sets screen to `"game"` if in progress. |
 | `newCycleAnnouncement` | `{ cycleNumber }` | `dispatch(NEW_CYCLE_ANNOUNCEMENT)` — round announcement phase. |
 | `choosingStarted` | `{ drawerId, drawerName, endsAt, options?, cycleNumber }` | `dispatch(CHOOSING_STARTED)` — word choice phase. |
@@ -141,6 +144,9 @@ Derived values (`isDrawer`, `role`, `wordChars`, `sortedPlayers`, podium groups)
 | `playerJoined` | `{ id, name }` | Appended in `ChatLog.tsx`. |
 | `playerLeft` | `{ id, name }` | `showNotice()` toast + `ChatLog.tsx` entry. |
 | `hostChanged` | `{ newHostId, newHostName }` | `dispatch(HOST_CHANGED)` + crown transfer toast. |
+| `connect` | `(none)` | Attempt connection recovery by emitting `rejoin` with `{ roomId, token }` from `sessionStorage`. |
+| `rejoin` (emit) | `{ roomId, token }` | Client reconnect request. Server responds via ack callback. |
+| `leaving` (emit)| `(none)` | Emitted on `pagehide` to signal possible disconnect and speed up server-side handling. |
 
 ---
 

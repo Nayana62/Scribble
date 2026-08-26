@@ -99,6 +99,8 @@ Each room is stored in an in-memory `Map`:
   actionLog,       // replayed for late joiners (DrawAction[])
   correctGuesses,  // per-round list of correct guessers
   roundEndsAt,     // epoch-ms expiry of draw timer
+  // Each player record also carries a `token` (crypto.randomUUID) for reconnect identity.
+  // Active grace timers are tracked in game/gracePeriod.js (not on the room object).
 }
 ```
 
@@ -112,19 +114,21 @@ Each room is stored in an in-memory `Map`:
 |---|---|
 | `createRoom` | Create private room |
 | `joinRoom` | Join by room code |
+| `rejoin` | Reconnect using a saved token — re-associates new socket.id with existing player record |
 | `startGame` | Host starts from lobby |
 | `wordChosen` | Drawer selects a word during choosing phase |
 | `drawStroke` | Drawer broadcasts live coordinate segment |
 | `drawAction` | Drawer commits drawing action (stroke, fill, clear, or undo) |
 | `submitGuess` | Chat message or guess submission |
-| `playAgain` | Host resets scores and cycles, returns to lobby |
+| `playAgain` | Host resets scores and cycles, returns to lobby (ack-based; returns `NOT_HOST` / `INVALID_STATE` errors) |
+| `leaving` | Fire-and-forget signal on `pagehide` — enables fast disconnect detection |
 | `leaveRoom` | Exit room |
 
 ### Server → Client
 
 | Event | Purpose |
 |---|---|
-| `joinedRoomSuccess` | Confirmed room entry |
+| `joinedRoomSuccess` | Confirmed room entry — now includes `token` for reconnect identity |
 | `playersUpdate` | Live roster, scores, host, drawer |
 | `newCycleAnnouncement` | Phase announcement begins |
 | `choosingStarted` | Choosing phase starts (word options to drawer only) |
@@ -132,13 +136,14 @@ Each room is stored in an in-memory `Map`:
 | `yourWord` | Secret word (drawer only) |
 | `strokeBroadcast` | Live mousemove segment broadcast |
 | `drawAction` | Relay drawing actions (stroke, fill, clear, undo) |
-| `actionReplay` | Late-joiner action log replay |
+| `actionReplay` | Late-joiner / rejoin action log replay |
 | `canvasCleared` | Clear drawing board |
 | `chatMessage` / `guessResult` | Chat/guess log entries (guess outcomes are system-notified safely) |
 | `guessBlocked` | Drawer tried to reveal word |
 | `roundResult` | Round over; carries points earned and word (replaces `roundEnd`) |
 | `gameFinished` | Final scores, go to end screen |
 | `waitingForPlayers` | Paused — need more players |
+| `roomClosed` | Room deleted (grace period expired or explicit close); client transitions to home |
 | `hostChanged` / `notice` / `playerLeft` / `playerJoined` | System notifications & toasts |
 
 Full event matrices with payloads are documented in `client/docs/ARCHITECTURE.md` and `server/docs/ARCHITECTURE.md`.

@@ -1,10 +1,12 @@
 const {
   rooms,
   socketRoomMap,
+  tokenRoomMap,
   ROOM_CAPACITY,
   MIN_PLAYERS,
   PLAYER_COLORS,
   generateRoomId,
+  generateToken,
   assignColor,
   getPlayersArray,
   initRoom,
@@ -31,13 +33,41 @@ const {
   clearTimer,
   startRoundTimer,
   clearRoundTimer,
+  clearAllTimers,
   getEndsAt,
+  pauseTimer,
+  resumeTimer,
+  isTimerPaused,
 } = require("../game/timer");
+
+const {
+  startGrace,
+  cancelGrace,
+  hasGrace,
+} = require("../game/gracePeriod");
 
 const {
   ROUND_DURATION_SEC,
   CHOOSING_DURATION_SEC,
 } = require("../game/constants");
+
+/** Grace period before an empty room is deleted (seconds). */
+const ROOM_GRACE_SEC = 60;
+
+/**
+ * Fast-disconnect debounce window (ms).
+ * When a client emits `leaving`, we wait this long for a confirming `disconnect`
+ * before treating the departure as a false positive and doing nothing.
+ */
+const LEAVING_DEBOUNCE_MS = 2500;
+
+/**
+ * Debounce handles keyed by socket.id.
+ * Set when `leaving` is received; cleared (and departure triggered) when
+ * the confirming `disconnect` arrives within the window.
+ * @type {Map<string, ReturnType<typeof setTimeout>>}
+ */
+const leavingDebounces = new Map();
 
 module.exports = function(io) {
   io.on("connection", (socket) => {
@@ -336,6 +366,13 @@ module.exports = function(io) {
       startChoosingPhase(roomId);
     }
 
+    /**
+     * Remove a player from their current room and handle all downstream effects:
+     * host reassignment, departure broadcasts, grace timers, etc.
+     *
+     * This is the single departure path — called from both `disconnect` and
+     * the Phase 3 fast-path when `leaving` + `disconnect` arrive in quick succession.
+     */
     function leaveCurrentRoom(socket) {
       const currentRoomId = socketRoomMap.get(socket.id);
       if (!currentRoomId) return;
@@ -348,6 +385,12 @@ module.exports = function(io) {
 
       const player = room.players.get(socket.id);
       const playerName = player ? player.name : "A player";
+
+      // Clean up the token reverse-lookup.
+      if (player && player.token) {
+        tokenRoomMap.delete(player.token);
+      }
+
       room.players.delete(socket.id);
 
       io.to(currentRoomId).emit("playerLeft", {
@@ -355,9 +398,22 @@ module.exports = function(io) {
         name: playerName,
       });
 
+      // ── Room now empty: start grace period instead of deleting immediately ───
       if (room.players.size === 0) {
-        clearRoundTimer(currentRoomId);
-        rooms.delete(currentRoomId);
+        // Pause any active round timer so it doesn't fire or keep counting down
+        // while nobody is connected.
+        if (room.status === "in_progress") {
+          pauseTimer(currentRoomId, "drawing");
+          pauseTimer(currentRoomId, "choosing");
+        }
+
+        startGrace(currentRoomId, ROOM_GRACE_SEC, () => {
+          // Grace window elapsed with no reconnect — clean up.
+          clearAllTimers(currentRoomId);
+          io.to(currentRoomId).emit("roomClosed", { reason: "empty" });
+          rooms.delete(currentRoomId);
+          console.log(`Room ${currentRoomId} deleted after grace period (no reconnect).`);
+        });
         return;
       }
 
@@ -409,6 +465,7 @@ module.exports = function(io) {
       const roomId = generateRoomId();
       const room = initRoom(roomId, socket.id);
       const color = PLAYER_COLORS[0];
+      const token = generateToken();
 
       socket.join(roomId);
       socketRoomMap.set(socket.id, roomId);
@@ -417,9 +474,11 @@ module.exports = function(io) {
         name: playerName,
         score: 0,
         color,
+        token,
       });
+      tokenRoomMap.set(token, roomId);
 
-      socket.emit("joinedRoomSuccess", { roomId, isHost: true, color });
+      socket.emit("joinedRoomSuccess", { roomId, isHost: true, color, token });
       broadcastPlayersUpdate(roomId);
     });
 
@@ -445,6 +504,7 @@ module.exports = function(io) {
 
       const playerName = (name || "Player").trim() || "Player";
       const color = assignColor(room);
+      const token = generateToken();
 
       socket.join(normalizedId);
       socketRoomMap.set(socket.id, normalizedId);
@@ -453,10 +513,11 @@ module.exports = function(io) {
         room.joinOrder.push(socket.id);
       }
 
-      room.players.set(socket.id, { id: socket.id, name: playerName, score: 0, color });
+      room.players.set(socket.id, { id: socket.id, name: playerName, score: 0, color, token });
+      tokenRoomMap.set(token, normalizedId);
 
       const isHost = socket.id === room.hostId;
-      socket.emit("joinedRoomSuccess", { roomId: normalizedId, isHost, color });
+      socket.emit("joinedRoomSuccess", { roomId: normalizedId, isHost, color, token });
       socket.to(normalizedId).emit("playerJoined", { id: socket.id, name: playerName });
       broadcastPlayersUpdate(normalizedId);
 
@@ -501,6 +562,133 @@ module.exports = function(io) {
           }
         }
       }
+    });
+
+    // ── Rejoin (reconnect with existing token) ─────────────────────────────────
+    socket.on("rejoin", ({ roomId, token }, ack) => {
+      if (typeof ack !== "function") return; // ignore fire-and-forget misuse
+
+      const normalizedId = (roomId || "").trim().toUpperCase();
+      const room = rooms.get(normalizedId);
+
+      if (!room) {
+        ack({ error: "ROOM_NOT_FOUND" });
+        return;
+      }
+
+      // Find the player record that owns this token.
+      let oldSocketId = null;
+      let player = null;
+      for (const [sid, p] of room.players) {
+        if (p.token === token) {
+          oldSocketId = sid;
+          player = p;
+          break;
+        }
+      }
+
+      if (!player) {
+        // Room exists but token doesn't match anyone — player was removed.
+        ack({ error: "PLAYER_NOT_FOUND" });
+        return;
+      }
+
+      // ── Re-associate player with the new socket ────────────────────────────
+      const oldId = oldSocketId;
+      const newId = socket.id;
+
+      // Update the player record's own id field.
+      player.id = newId;
+
+      // Re-key the players Map.
+      room.players.delete(oldId);
+      room.players.set(newId, player);
+
+      // Update joinOrder.
+      const joIdx = room.joinOrder.indexOf(oldId);
+      if (joIdx !== -1) room.joinOrder[joIdx] = newId;
+
+      // Update hostId / drawerId references.
+      if (room.hostId === oldId) room.hostId = newId;
+      if (room.drawerId === oldId) room.drawerId = newId;
+
+      // Update socket → room map.
+      socketRoomMap.delete(oldId);
+      socketRoomMap.set(newId, normalizedId);
+
+      // Re-join Socket.IO room.
+      socket.join(normalizedId);
+
+      // Cancel the grace timer if the room was waiting for someone.
+      if (hasGrace(normalizedId)) {
+        cancelGrace(normalizedId);
+        console.log(`Room ${normalizedId}: grace period cancelled — ${player.name} rejoined.`);
+
+        // Resume any paused timers.
+        if (isTimerPaused(normalizedId, "drawing")) {
+          resumeTimer(normalizedId, "drawing", () => {
+            const current = rooms.get(normalizedId);
+            if (current) endRound(current, normalizedId, "timeout");
+          });
+        }
+        if (isTimerPaused(normalizedId, "choosing")) {
+          resumeTimer(normalizedId, "choosing", () => {
+            const current = rooms.get(normalizedId);
+            if (!current || current.roundPhase !== "choosing") return;
+            const autoWord =
+              current.choosingOptions[
+                Math.floor(Math.random() * current.choosingOptions.length)
+              ];
+            lockWordAndStartDrawing(current, normalizedId, autoWord);
+          });
+        }
+      }
+
+      // ── Build room snapshot for client resync ──────────────────────────────
+      const wordHint = room.word
+        ? room.word.split("").map(c => (c === " " ? " " : "_")).join("")
+        : null;
+
+      const snapshot = {
+        players: getPlayersArray(room),
+        hostId: room.hostId,
+        status: room.status,
+        drawerId: room.drawerId,
+        roundPhase: room.roundPhase,
+        wordLength: room.wordLength || null,
+        wordHint,
+        endsAt: getEndsAt(normalizedId, "drawing"),
+        choosingEndsAt: getEndsAt(normalizedId, "choosing"),
+        cycleNumber: room.cyclesCompleted + 1,
+      };
+
+      ack({ success: true, token, snapshot });
+
+      // Send canvas history if in drawing phase.
+      if (room.roundPhase === "drawing" && room.actionLog.length > 0) {
+        socket.emit("actionReplay", { actions: room.actionLog });
+      }
+
+      // If rejoining player is drawer and we're in drawing phase, re-send word.
+      if (room.roundPhase === "drawing" && room.drawerId === newId && room.word) {
+        socket.emit("yourWord", { word: room.word });
+      }
+
+      // If rejoining player is drawer and we're in choosing phase, re-send options.
+      if (room.roundPhase === "choosing" && room.drawerId === newId && room.choosingOptions) {
+        const drawerPlayer = room.players.get(newId);
+        const drawerName = drawerPlayer ? drawerPlayer.name : "Drawer";
+        socket.emit("choosingStarted", {
+          drawerId: room.drawerId,
+          drawerName,
+          options: room.choosingOptions,
+          endsAt: getEndsAt(normalizedId, "choosing"),
+          cycleNumber: room.cyclesCompleted + 1,
+        });
+      }
+
+      broadcastPlayersUpdate(normalizedId);
+      console.log(`Rejoin: ${player.name} (${oldId} → ${newId}) in room ${normalizedId}`);
     });
 
     // ── Start Game (host only) ─────────────────────────────────────────────────
@@ -688,11 +876,24 @@ module.exports = function(io) {
     });
 
     // ── Play Again ────────────────────────────────────────────────────────────
-    socket.on("playAgain", () => {
+    socket.on("playAgain", (ack) => {
+      // Support both ack-based calls (Phase 4) and legacy fire-and-forget.
+      const respond = typeof ack === "function" ? ack : () => {};
+
       const roomId = socketRoomMap.get(socket.id);
-      if (!roomId) return;
+      if (!roomId) { respond({ error: "NOT_IN_ROOM" }); return; }
       const room = rooms.get(roomId);
-      if (!room) return;
+      if (!room) { respond({ error: "NOT_IN_ROOM" }); return; }
+
+      if (socket.id !== room.hostId) {
+        respond({ error: "NOT_HOST" });
+        return;
+      }
+
+      if (room.status !== "finished") {
+        respond({ error: "INVALID_STATE" });
+        return;
+      }
 
       clearRoundTimer(roomId);
 
@@ -712,6 +913,7 @@ module.exports = function(io) {
         p.score = 0;
       }
 
+      respond({ success: true });
       io.to(roomId).emit("playAgain");
       broadcastPlayersUpdate(roomId);
     });
@@ -721,9 +923,35 @@ module.exports = function(io) {
       leaveCurrentRoom(socket);
     });
 
+    // ── Leaving (Phase 3: fast disconnect detection) ───────────────────────────
+    // Client emits this on `pagehide` — fire-and-forget signal that departure
+    // is likely. We start a short debounce; if a real `disconnect` confirms
+    // within the window, we process departure immediately (skipping heartbeat wait).
+    socket.on("leaving", () => {
+      // Avoid stacking duplicate debounces.
+      if (leavingDebounces.has(socket.id)) return;
+
+      const handle = setTimeout(() => {
+        // Debounce expired without a confirming disconnect — false positive, do nothing.
+        leavingDebounces.delete(socket.id);
+      }, LEAVING_DEBOUNCE_MS);
+
+      leavingDebounces.set(socket.id, handle);
+    });
+
     // ── Disconnect ────────────────────────────────────────────────────────────
     socket.on("disconnect", () => {
       console.log(`Disconnected: ${socket.id}`);
+
+      // Phase 3: if a `leaving` debounce is pending for this socket, the
+      // disconnect confirms the departure — cancel the debounce and process
+      // departure immediately instead of waiting for heartbeat timeout.
+      if (leavingDebounces.has(socket.id)) {
+        clearTimeout(leavingDebounces.get(socket.id));
+        leavingDebounces.delete(socket.id);
+        console.log(`Fast disconnect: ${socket.id} (leaving signal confirmed)`);
+      }
+
       leaveCurrentRoom(socket);
     });
   });
