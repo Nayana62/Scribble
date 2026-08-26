@@ -245,14 +245,17 @@ function useGameSocketEvents(
     };
   }, [dispatch, showNotice, stateRef]);
 
-  // ── Phase 3: fire-and-forget `leaving` on page unload ────────────────────
-  // `pagehide` is the most reliable unload event (works when the page is
-  // put into the bfcache as well as when it's fully unloaded).
+  // ── Actively disconnect on page unload ───────────────────────────────────
+  // `pagehide` fires on tab close, navigation away, and mobile backgrounding.
+  // Calling `socket.disconnect()` tears down the WebSocket immediately, which
+  // causes the server's `disconnect` handler to fire without waiting for a
+  // heartbeat timeout — giving near-instant mid-game departure detection.
+  // Note: if `pagehide` never fires (hard OS kill), the ping-heartbeat timeout
+  // is still the fallback; nothing can make that case instant.
   useEffect(() => {
     function handlePageHide() {
       if (stateRef.current.roomId) {
-        // Fire-and-forget — no ack; page may freeze immediately after.
-        socket.emit("leaving");
+        socket.disconnect();
       }
     }
     window.addEventListener("pagehide", handlePageHide);

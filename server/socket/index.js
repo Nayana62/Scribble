@@ -54,21 +54,6 @@ const {
 /** Grace period before an empty room is deleted (seconds). */
 const ROOM_GRACE_SEC = 60;
 
-/**
- * Fast-disconnect debounce window (ms).
- * When a client emits `leaving`, we wait this long for a confirming `disconnect`
- * before treating the departure as a false positive and doing nothing.
- */
-const LEAVING_DEBOUNCE_MS = 2500;
-
-/**
- * Debounce handles keyed by socket.id.
- * Set when `leaving` is received; cleared (and departure triggered) when
- * the confirming `disconnect` arrives within the window.
- * @type {Map<string, ReturnType<typeof setTimeout>>}
- */
-const leavingDebounces = new Map();
-
 module.exports = function(io) {
   io.on("connection", (socket) => {
     console.log(`Connected: ${socket.id}`);
@@ -930,35 +915,14 @@ module.exports = function(io) {
       }
     });
 
-    // ── Leaving (Phase 3: fast disconnect detection) ───────────────────────────
-    // Client emits this on `pagehide` — fire-and-forget signal that departure
-    // is likely. We start a short debounce; if a real `disconnect` confirms
-    // within the window, we process departure immediately (skipping heartbeat wait).
-    socket.on("leaving", () => {
-      // Avoid stacking duplicate debounces.
-      if (leavingDebounces.has(socket.id)) return;
-
-      const handle = setTimeout(() => {
-        // Debounce expired without a confirming disconnect — false positive, do nothing.
-        leavingDebounces.delete(socket.id);
-      }, LEAVING_DEBOUNCE_MS);
-
-      leavingDebounces.set(socket.id, handle);
-    });
-
     // ── Disconnect ────────────────────────────────────────────────────────────
+    // `leaveCurrentRoom` is called immediately and synchronously — there is no
+    // debounce or delay here. A `disconnect` event firing is already ground truth;
+    // there is nothing left to confirm. The reason string (e.g.
+    // "client namespace disconnect" for an explicit socket.disconnect() call,
+    // "transport close" for a dropped connection) is informational only.
     socket.on("disconnect", () => {
       console.log(`Disconnected: ${socket.id}`);
-
-      // Phase 3: if a `leaving` debounce is pending for this socket, the
-      // disconnect confirms the departure — cancel the debounce and process
-      // departure immediately instead of waiting for heartbeat timeout.
-      if (leavingDebounces.has(socket.id)) {
-        clearTimeout(leavingDebounces.get(socket.id));
-        leavingDebounces.delete(socket.id);
-        console.log(`Fast disconnect: ${socket.id} (leaving signal confirmed)`);
-      }
-
       leaveCurrentRoom(socket);
     });
   });
