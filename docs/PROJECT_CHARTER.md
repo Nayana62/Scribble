@@ -18,11 +18,11 @@ Scribble is a real-time multiplayer drawing and guessing game. One player draws 
 
 - **Sequential drawer rotation** — players draw in join order, one round per player per cycle
 - **3 full cycles** — every player draws three times before the game ends
-- **Secret word** — only the active drawer sees the target word
+- **Secret word** — active drawer chooses from 3 word options; only the drawer sees the target word
 - **Live canvas** — strokes broadcast in real time; mouse and touch supported
 - **Canvas clear** — drawer can wipe the board mid-round
 - **Guess blocking** — drawer cannot type the secret word in chat
-- **Scoring** — correct guesser +50 pts; drawer +20 pts per correct guess in their round
+- **Scoring** — correct guesser gets rank-based base points (100/80/60/50) + time bonus (up to 50/40/40/0); drawer gets +10 pts per correct guess in their round (up to 100 max)
 - **Late joiners** — stroke history replayed so new players see the current drawing
 
 ### Screens

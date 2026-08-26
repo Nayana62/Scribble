@@ -27,7 +27,7 @@ A real-time multiplayer drawing and guessing game. One player draws a secret wor
 ### Game Flow
 
 - **3 full cycles** — each player draws 3 times before the game ends
-- **Scoring** — +50 pts for a correct guess, +20 pts for the drawer
+- **Scoring** — Rank-based + time-bonus for correct guessers (+100/80/60/50 base plus up to +50/40/40/0 time-remaining bonus); drawer gets +10 pts per correct guess in their round (up to 100 max)
 - Round winner toast after each correct guess
 - End screen with podium (top 3, ties supported) and full scoreboard
 - Play again returns everyone to the lobby with reset scores
@@ -121,7 +121,7 @@ Detailed docs per package:
 | Max players per room     | 12                             |
 | Min players to start     | 2                              |
 | Cycles before game ends  | 3 (every player draws 3 times) |
-| Points per correct guess | +50 (guesser), +20 (drawer)    |
+| Points per correct guess | Rank-based base (100/80/60/50) + time bonus (guesser); +10 per guess (drawer, max 100) |
 | Turn order               | Sequential by join order       |
 
 ---

@@ -22,7 +22,7 @@ Comprehensive documentation of React components, state ownership, and UI lifecyc
   - `screen`: `"home" | "gameLobby" | "game" | "finished"`
   - `roomId`, `isHost`, `hostId`, `players`, `myColor`
   - `drawerId`, `drawerName`, `roomStatus`: `"waiting" | "in_progress"`
-  - `word`, `wordLength`, `replayStrokes`, `roundEndInfo`, `noticeMsg`
+  - `word`, `wordLength`, `replayActions`, `roundResult`, `noticeMsg`
 
 ---
 
@@ -48,7 +48,7 @@ Comprehensive documentation of React components, state ownership, and UI lifecyc
 ### 5. `GameScreen.tsx`
 
 - **Role**: 3-column game layout — player list, canvas + word strip, chat panel.
-- **Reads from context**: `players`, `hostId`, `drawerId`, `wordLength`, `word`, `replayStrokes`, `roundEndInfo`, `noticeMsg`
+- **Reads from context**: `players`, `hostId`, `drawerId`, `wordLength`, `word`, `wordHint`, `replayActions`, `endsAt`, `roundPhase`, `choosingEndsAt`, `wordOptions`, `drawerName`, `cycleNumber`, `correctGuessers`, `roundResult`, `noticeMsg`
 - **Derived** (`useMemo`): `isDrawer`, `role`, `wordChars`
 
 ---
@@ -69,7 +69,10 @@ Comprehensive documentation of React components, state ownership, and UI lifecyc
   ```typescript
   type Props = {
     role: "drawer" | "guesser" | null;
-    replayStrokes?: Array<{ prevX: number; prevY: number; x: number; y: number }>;
+    /** Full ordered action log for late-joiner replay (from shared game state). */
+    replayActions?: DrawAction[];
+    /** When false, drawing input is disabled (e.g. during word-choosing phase). */
+    canDraw?: boolean;
   };
   ```
 - **Key Methods**:

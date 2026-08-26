@@ -62,15 +62,23 @@ Room created (status: "waiting")
         │
   Host starts (≥ 2 players)
         │
-  status: "in_progress" — pick drawer, assign word, clear stroke history
+  status: "in_progress" (new round / cycle start)
+        │
+  [isNewCycle === true]
+  Phase: "announcement" (3s cycle overlay)
+        │
+  Phase: "choosing" (15s drawer picks word from 3 options)
+        │
+  Phase: "drawing" (80s active draw & guess timer, actionLog cleared)
         │
   Correct guess / drawer leaves / timeout
         │
-  roundEnd (2.5s pause) → next round
+  roundResult (5s pause overlay)
         │
-  cyclesCompleted >= 3
-        │
-  status: "finished" → gameFinished → playAgain or leaveRoom
+  cyclesCompleted >= 3  ──[Yes]──► status: "finished" → gameFinished
+        │ [No]
+        ▼
+  Start Next Round
 ```
 
 If players drop below 2 mid-game, status returns to `"waiting"` and clients go back to the lobby.
@@ -86,9 +94,11 @@ Each room is stored in an in-memory `Map`:
   hostId, players, joinOrder,
   drawerId, word, wordLength,
   status: "waiting" | "in_progress" | "finished",
+  roundPhase: "announcement" | "choosing" | "drawing" | null,
   cyclesCompleted,
-  strokeHistory,   // replayed for late joiners
-  roundTimer,
+  actionLog,       // replayed for late joiners (DrawAction[])
+  correctGuesses,  // per-round list of correct guessers
+  roundEndsAt,     // epoch-ms expiry of draw timer
 }
 ```
 
@@ -103,10 +113,11 @@ Each room is stored in an in-memory `Map`:
 | `createRoom` | Create private room |
 | `joinRoom` | Join by room code |
 | `startGame` | Host starts from lobby |
-| `drawStroke` | Drawer sends stroke coordinates |
-| `clearCanvasRequest` | Drawer clears canvas |
-| `submitGuess` | Chat message or guess |
-| `playAgain` | Reset scores, return to lobby |
+| `wordChosen` | Drawer selects a word during choosing phase |
+| `drawStroke` | Drawer broadcasts live coordinate segment |
+| `drawAction` | Drawer commits drawing action (stroke, fill, clear, or undo) |
+| `submitGuess` | Chat message or guess submission |
+| `playAgain` | Host resets scores and cycles, returns to lobby |
 | `leaveRoom` | Exit room |
 
 ### Server → Client
@@ -115,24 +126,32 @@ Each room is stored in an in-memory `Map`:
 |---|---|
 | `joinedRoomSuccess` | Confirmed room entry |
 | `playersUpdate` | Live roster, scores, host, drawer |
-| `roundStart` | New round begins |
+| `newCycleAnnouncement` | Phase announcement begins |
+| `choosingStarted` | Choosing phase starts (word options to drawer only) |
+| `roundStart` | Drawing phase begins (carrying `endsAt`, hints) |
 | `yourWord` | Secret word (drawer only) |
-| `strokeBroadcast` / `strokeReplay` | Live strokes / late-joiner replay |
+| `strokeBroadcast` | Live mousemove segment broadcast |
+| `drawAction` | Relay drawing actions (stroke, fill, clear, undo) |
+| `actionReplay` | Late-joiner action log replay |
 | `canvasCleared` | Clear drawing board |
-| `chatMessage` / `guessResult` | Chat log entries |
+| `chatMessage` / `guessResult` | Chat/guess log entries (guess outcomes are system-notified safely) |
 | `guessBlocked` | Drawer tried to reveal word |
-| `roundEnd` | Round winner announcement |
+| `roundResult` | Round over; carries points earned and word (replaces `roundEnd`) |
 | `gameFinished` | Final scores, go to end screen |
 | `waitingForPlayers` | Paused — need more players |
-| `hostChanged` / `notice` / `playerLeft` | System notifications |
+| `hostChanged` / `notice` / `playerLeft` / `playerJoined` | System notifications & toasts |
 
-Full event matrices with payloads are documented in `client/docs/ARCHITECTURE.md` and `server/README.md`.
+Full event matrices with payloads are documented in `client/docs/ARCHITECTURE.md` and `server/docs/ARCHITECTURE.md`.
 
 ---
 
 ## Scoring & Game End
 
-- **+50 pts** — player who guesses correctly
-- **+20 pts** — drawer when someone guesses their word
-- **Game ends** after 3 full cycles (every player has drawn 3 times)
-- **Podium** — players grouped by score on the end screen; ties share a rank
+- **Correct Guesser Scoring**:
+  - Rank-based base points: **100** for 1st, **80** for 2nd, **60** for 3rd, and **50** for 4th+.
+  - Time-remaining bonus: up to **+50** for 1st, **+40** for 2nd, **+40** for 3rd, and **0** for 4th+.
+  - Total Points = `base + Math.round(maxBonus * (timeRemaining / duration))`
+- **Drawer Scoring**:
+  - **+10 pts** per player who guesses correctly in their round (up to **100** max).
+- **Game ends** after 3 full cycles (every player has drawn 3 times).
+- **Podium** — players grouped by score on the end screen; ties share a rank.
