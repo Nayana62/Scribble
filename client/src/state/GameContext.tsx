@@ -282,13 +282,24 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   const leaveRoom = useCallback(() => {
     const { roomId } = stateRef.current;
-    socket.emit("leaveRoom");
-    if (roomId) clearToken(roomId);
-    dispatch({ type: "RESET_TO_HOME" });
-    if (window.location.search) {
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, [dispatch]);
+
+    const timeoutHandle = setTimeout(() => {
+      showNotice("Couldn't reach the server — please try again.", 4000);
+    }, 5000);
+
+    socket.emit("leaveRoom", (ack: { success: boolean }) => {
+      clearTimeout(timeoutHandle);
+      if (ack?.success) {
+        if (roomId) clearToken(roomId);
+        dispatch({ type: "RESET_TO_HOME" });
+        if (window.location.search) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      } else {
+        showNotice("Couldn't leave the room — please try again.", 4000);
+      }
+    });
+  }, [dispatch, showNotice]);
 
   useGameSocketEvents(dispatch, showNotice, stateRef);
 

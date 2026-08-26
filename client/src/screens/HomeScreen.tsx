@@ -80,7 +80,7 @@ export function HomeScreen() {
   };
 
   return (
-    <div className="w-full min-h-screen flex flex-col justify-center items-center p-4 gap-6">
+    <div className="w-full h-dvh md:h-screen flex flex-col justify-center items-center p-4 gap-6">
       <h1 className="text-6xl sm:text-8xl font-semibold tracking-tight bg-gradient-to-r from-red-400 via-yellow-300 via-green-400 via-cyan-400 to-purple-400 bg-clip-text text-transparent drop-shadow-xl select-none">
         scribble
       </h1>

@@ -3,10 +3,24 @@ import { socket } from "../socket";
 import { useGame } from "../state/GameContext";
 import type { RankedGroup } from "../types";
 
+// EndScreen shows role-based controls:
+//   Host      → "Play Again" button + "Leave Room" button
+//   Non-host  → "Waiting for {hostName}…" status line + "Leave Room" button
+//
+// The live swap from the waiting text to the "Play Again" button when the
+// host leaves requires no extra listener here — `hostChanged` is already
+// handled globally in GameContext, which updates `state.isHost` for the
+// newly-promoted player on every render.
+
 export function EndScreen() {
   const { state, leaveRoom } = useGame();
-  const { roomId, players } = state;
+  const { roomId, players, isHost, hostId } = state;
   const [playAgainError, setPlayAgainError] = useState<string>("");
+
+  const hostName = useMemo(
+    () => players.find((p) => p.id === hostId)?.name ?? "the host",
+    [players, hostId],
+  );
 
   const sortedPlayers = useMemo(
     () => [...players].sort((a, b) => b.score - a.score),
@@ -202,24 +216,42 @@ export function EndScreen() {
       </div>
 
       <div className="flex gap-3 w-full max-w-sm shrink-0 flex-col">
-        <div className="flex gap-3">
-          <button
-            onClick={handlePlayAgain}
-            className="flex-1 py-3.5 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-white font-black text-sm rounded-xl transition-all shadow-lg shadow-emerald-950/20 cursor-pointer"
-          >
-            🔄 Play Again
-          </button>
-          <button
-            onClick={leaveRoom}
-            className="flex-1 py-3.5 bg-white/10 hover:bg-white/20 border border-white/20 active:scale-95 text-white font-black text-sm rounded-xl transition-all cursor-pointer"
-          >
-            🏠 Home Menu
-          </button>
-        </div>
-        {playAgainError && (
-          <p className="text-red-300 text-xs text-center font-semibold bg-red-900/30 border border-red-500/30 rounded-xl px-3 py-2">
-            {playAgainError}
-          </p>
+        {isHost ? (
+          <>
+            <div className="flex gap-3">
+              <button
+                onClick={handlePlayAgain}
+                className="flex-1 py-3.5 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-white font-black text-sm rounded-xl transition-all shadow-lg shadow-emerald-950/20 cursor-pointer"
+              >
+                🔄 Play Again
+              </button>
+              <button
+                onClick={leaveRoom}
+                className="flex-1 py-3.5 bg-white/10 hover:bg-white/20 border border-white/20 active:scale-95 text-white font-black text-sm rounded-xl transition-all cursor-pointer"
+              >
+                🚪 Leave Room
+              </button>
+            </div>
+            {playAgainError && (
+              <p className="text-red-300 text-xs text-center font-semibold bg-red-900/30 border border-red-500/30 rounded-xl px-3 py-2">
+                {playAgainError}
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="text-white/60 text-sm text-center font-medium py-1">
+              ⏳ Waiting for{" "}
+              <span className="font-bold text-white">{hostName}</span>{" "}
+              to start a new game…
+            </p>
+            <button
+              onClick={leaveRoom}
+              className="w-full py-3.5 bg-white/10 hover:bg-white/20 border border-white/20 active:scale-95 text-white font-black text-sm rounded-xl transition-all cursor-pointer"
+            >
+              🚪 Leave Room
+            </button>
+          </>
         )}
       </div>
     </div>

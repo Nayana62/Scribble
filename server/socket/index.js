@@ -400,6 +400,8 @@ module.exports = function(io) {
 
       // ── Room now empty: start grace period instead of deleting immediately ───
       if (room.players.size === 0) {
+        // This covers the "last player leaves from the finished screen" case as well —
+        // no special handling needed. The grace timer will clean up the room as usual.
         // Pause any active round timer so it doesn't fire or keep counting down
         // while nobody is connected.
         if (room.status === "in_progress") {
@@ -919,8 +921,13 @@ module.exports = function(io) {
     });
 
     // ── Leave Room ─────────────────────────────────────────────────────────────
-    socket.on("leaveRoom", () => {
+    // Accepts an optional ack so the client can navigate home only once the
+    // server has confirmed the departure (prevents optimistic navigation races).
+    socket.on("leaveRoom", (ack) => {
       leaveCurrentRoom(socket);
+      if (typeof ack === "function") {
+        ack({ success: true });
+      }
     });
 
     // ── Leaving (Phase 3: fast disconnect detection) ───────────────────────────
