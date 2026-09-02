@@ -51,6 +51,7 @@ const {
   CHOOSING_DURATION_SEC,
   MAX_NAME_LENGTH,
   MAX_GUESS_LENGTH,
+  MIN_GUESS_INTERVAL_MS,
 } = require("../game/constants");
 
 /** Grace period before an empty room is deleted (seconds). */
@@ -82,13 +83,39 @@ module.exports = function(io) {
     }
 
     /**
+     * Compute this round's correct-guess scores and apply the point deltas to
+     * each player's running total. Shared by `endRound` (which also broadcasts
+     * a `roundResult` overlay) and the insufficient-players path (which needs
+     * scores committed before the game ends, but skips the overlay).
+     *
+     * @param {object} room
+     * @returns {{scores: Array, guessScoreMap: Map, drawerPoints: number}}
+     */
+    function applyRoundScoreDeltas(room) {
+      const { scores, guessScoreMap, drawerPoints } = computeRoundScores(
+        room,
+        ROUND_DURATION_SEC * 1000,
+      );
+
+      for (const [playerId, player] of room.players) {
+        if (playerId === room.drawerId) {
+          player.score += drawerPoints;
+        } else if (guessScoreMap.has(playerId)) {
+          player.score += guessScoreMap.get(playerId);
+        }
+        // non-guessing non-drawer players earn 0 — no change
+      }
+
+      return { scores, guessScoreMap, drawerPoints };
+    }
+
+    /**
      * Consolidated round-ending logic.
      *
      * 1. Cancels all timers unconditionally.
-     * 2. Computes multi-guesser scores from room.correctGuesses.
-     * 3. Applies point deltas to each player's running total.
-     * 4. Emits `roundResult` to all clients (word + sorted scores).
-     * 5. After 5 seconds, advances turn order and starts the next choosing phase.
+     * 2. Computes and applies multi-guesser scores from room.correctGuesses.
+     * 3. Emits `roundResult` to all clients (word + sorted scores).
+     * 4. After 5 seconds, advances turn order and starts the next choosing phase.
      *
      * Handles all three reasons the same way:
      *  'allGuessed'         — everyone eligible has guessed correctly
@@ -105,21 +132,8 @@ module.exports = function(io) {
       room.roundPhase    = null;
       room.choosingOptions = null;
 
-      // Compute scores before clearing correctGuesses.
-      const { scores, guessScoreMap, drawerPoints } = computeRoundScores(
-        room,
-        ROUND_DURATION_SEC * 1000,
-      );
-
-      // Apply point deltas to running totals for players still in the room.
-      for (const [playerId, player] of room.players) {
-        if (playerId === room.drawerId) {
-          player.score += drawerPoints;
-        } else if (guessScoreMap.has(playerId)) {
-          player.score += guessScoreMap.get(playerId);
-        }
-        // non-guessing non-drawer players earn 0 — no change
-      }
+      // Compute and apply scores before clearing correctGuesses.
+      const { scores } = applyRoundScoreDeltas(room);
 
       const word = room.word ?? "";
 
@@ -311,48 +325,52 @@ module.exports = function(io) {
       startRound(roomId);
     }
 
+    /**
+     * Conclude the game right now and show final standings — used both when
+     * all cycles complete normally and when the player count drops too low
+     * to continue (the sole remaining player is declared the winner with
+     * whatever score they have).
+     *
+     * @param {object} room
+     * @param {string} roomId
+     */
+    function finishGame(room, roomId) {
+      clearRoundTimer(roomId);
+      room.status = "finished";
+      room.drawerId = null;
+      room.word = null;
+      room.wordLength = 0;
+      room.actionLog = [];
+      room.roundPhase = null;
+      room.choosingOptions = null;
+      room.correctGuesses = [];
+      room.roundEndsAt = null;
+      io.to(roomId).emit("canvasCleared");
+      io.to(roomId).emit("gameFinished", {
+        players: getPlayersArray(room),
+      });
+      broadcastPlayersUpdate(roomId);
+    }
+
     function startRound(roomId) {
       const room = rooms.get(roomId);
       if (!room) return;
 
+      // Stale scheduled call (e.g. from an endRound() timeout) arriving after
+      // the game was already concluded by another path — nothing to do.
+      if (room.status === "finished") return;
+
       if (room.players.size < MIN_PLAYERS) {
-        clearRoundTimer(roomId);
-        room.status = "waiting";
-        room.drawerId = null;
-        room.word = null;
-        room.wordLength = 0;
-        room.actionLog = [];
-        room.roundPhase = null;
-        room.choosingOptions = null;
-        room.correctGuesses = [];
-        room.roundEndsAt = null;
-        io.to(roomId).emit("canvasCleared");
-        io.to(roomId).emit("waitingForPlayers", {
-          count: room.players.size,
-          min: MIN_PLAYERS,
-        });
-        broadcastPlayersUpdate(roomId);
+        // Not enough players left to continue a game that was in progress —
+        // end it now rather than parking the room in "waiting".
+        finishGame(room, roomId);
         return;
       }
 
       checkCycleCompleted(room, room.drawerId);
 
       if (isGameFinished(room)) {
-        clearRoundTimer(roomId);
-        room.status = "finished";
-        room.drawerId = null;
-        room.word = null;
-        room.wordLength = 0;
-        room.actionLog = [];
-        room.roundPhase = null;
-        room.choosingOptions = null;
-        room.correctGuesses = [];
-        room.roundEndsAt = null;
-        io.to(roomId).emit("canvasCleared");
-        io.to(roomId).emit("gameFinished", {
-          players: getPlayersArray(room),
-        });
-        broadcastPlayersUpdate(roomId);
+        finishGame(room, roomId);
         return;
       }
 
@@ -429,20 +447,34 @@ module.exports = function(io) {
       broadcastPlayersUpdate(currentRoomId);
 
       if (room.players.size < MIN_PLAYERS) {
-        clearRoundTimer(currentRoomId);
-        room.status = "waiting";
-        room.drawerId = null;
-        room.word = null;
-        room.wordLength = 0;
-        room.actionLog = [];
-        room.roundPhase = null;
-        room.choosingOptions = null;
-        io.to(currentRoomId).emit("canvasCleared");
-        io.to(currentRoomId).emit("waitingForPlayers", {
-          count: room.players.size,
-          min: MIN_PLAYERS,
-          reason: "player_left",
-        });
+        if (room.status === "in_progress") {
+          // A game was running and can no longer continue — commit any points
+          // already earned this round, then end the game immediately with
+          // whoever remains declared the winner (instead of parking in the lobby).
+          if (room.roundPhase === "drawing") {
+            applyRoundScoreDeltas(room);
+          }
+          finishGame(room, currentRoomId);
+        } else {
+          // No active game (still in the lobby, or already on the results
+          // screen) — just reset to waiting for more players.
+          clearRoundTimer(currentRoomId);
+          room.status = "waiting";
+          room.drawerId = null;
+          room.word = null;
+          room.wordLength = 0;
+          room.actionLog = [];
+          room.roundPhase = null;
+          room.choosingOptions = null;
+          room.correctGuesses = [];
+          room.roundEndsAt = null;
+          io.to(currentRoomId).emit("canvasCleared");
+          io.to(currentRoomId).emit("waitingForPlayers", {
+            count: room.players.size,
+            min: MIN_PLAYERS,
+            reason: "player_left",
+          });
+        }
       } else if (socket.id === room.drawerId && room.status === "in_progress") {
         if (room.roundPhase === "choosing" || room.roundPhase === "announcement") {
           skipChoosing(room, currentRoomId);
@@ -806,6 +838,14 @@ module.exports = function(io) {
       if (!trimmed) return;
 
       const player = room.players.get(socket.id);
+
+      // Per-socket rate limit — throttles this player only, not the room.
+      const now = Date.now();
+      if (player && now - (player.lastGuessAt ?? 0) < MIN_GUESS_INTERVAL_MS) {
+        return;
+      }
+      if (player) player.lastGuessAt = now;
+
       const senderName = player ? player.name : "Player";
       const isDrawer = socket.id === room.drawerId;
 

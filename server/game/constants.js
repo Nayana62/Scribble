@@ -18,9 +18,17 @@ const CHOOSING_DURATION_SEC = 15;
 const MAX_NAME_LENGTH = 16;
 const MAX_GUESS_LENGTH = 60;
 
+/**
+ * Minimum time (ms) a single player must wait between accepted `submitGuess`
+ * messages. Per-socket, not room-wide — stops one flooding client without
+ * throttling other players. Well above realistic human typing speed.
+ */
+const MIN_GUESS_INTERVAL_MS = 250;
+
 module.exports = {
   ROUND_DURATION_SEC,
   CHOOSING_DURATION_SEC,
   MAX_NAME_LENGTH,
   MAX_GUESS_LENGTH,
+  MIN_GUESS_INTERVAL_MS,
 };
