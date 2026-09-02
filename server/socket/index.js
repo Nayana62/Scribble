@@ -49,10 +49,22 @@ const {
 const {
   ROUND_DURATION_SEC,
   CHOOSING_DURATION_SEC,
+  MAX_NAME_LENGTH,
+  MAX_GUESS_LENGTH,
 } = require("../game/constants");
 
 /** Grace period before an empty room is deleted (seconds). */
 const ROOM_GRACE_SEC = 60;
+
+/**
+ * Coerce a socket payload field to a string, falling back when it isn't one.
+ * Socket.IO payloads are untrusted network input — a client (malicious or
+ * buggy) can send any JSON shape, so call sites must not assume `typeof x
+ * === "string"` just because a field is present.
+ */
+function asString(value, fallback = "") {
+  return typeof value === "string" ? value : fallback;
+}
 
 module.exports = function(io) {
   io.on("connection", (socket) => {
@@ -448,7 +460,8 @@ module.exports = function(io) {
     socket.on("createRoom", ({ name }) => {
       leaveCurrentRoom(socket);
 
-      const playerName = (name || "Player").trim() || "Player";
+      const playerName =
+        asString(name, "Player").trim().slice(0, MAX_NAME_LENGTH) || "Player";
       const roomId = generateRoomId();
       const room = initRoom(roomId, socket.id);
       const color = PLAYER_COLORS[0];
@@ -473,7 +486,7 @@ module.exports = function(io) {
     socket.on("joinRoom", ({ roomId, name }) => {
       leaveCurrentRoom(socket);
 
-      const normalizedId = (roomId || "").trim().toUpperCase();
+      const normalizedId = asString(roomId).trim().toUpperCase();
 
       if (!rooms.has(normalizedId)) {
         socket.emit("roomNotFound", {
@@ -489,7 +502,8 @@ module.exports = function(io) {
         return;
       }
 
-      const playerName = (name || "Player").trim() || "Player";
+      const playerName =
+        asString(name, "Player").trim().slice(0, MAX_NAME_LENGTH) || "Player";
       const color = assignColor(room);
       const token = generateToken();
 
@@ -555,7 +569,7 @@ module.exports = function(io) {
     socket.on("rejoin", ({ roomId, token }, ack) => {
       if (typeof ack !== "function") return; // ignore fire-and-forget misuse
 
-      const normalizedId = (roomId || "").trim().toUpperCase();
+      const normalizedId = asString(roomId).trim().toUpperCase();
       const room = rooms.get(normalizedId);
 
       if (!room) {
@@ -598,6 +612,12 @@ module.exports = function(io) {
       // Update hostId / drawerId references.
       if (room.hostId === oldId) room.hostId = newId;
       if (room.drawerId === oldId) room.drawerId = newId;
+
+      // Re-key any correct-guess record made under the old socket id, so the
+      // reconnected player's earned points/eligibility carry over correctly.
+      for (const guess of room.correctGuesses) {
+        if (guess.playerId === oldId) guess.playerId = newId;
+      }
 
       // Update socket → room map.
       socketRoomMap.delete(oldId);
@@ -714,7 +734,7 @@ module.exports = function(io) {
       if (!room || room.status !== "in_progress") return;
       if (socket.id !== room.drawerId || room.roundPhase !== "choosing") return;
 
-      const trimmed = (word || "").trim();
+      const trimmed = asString(word).trim();
       if (!trimmed) return;
 
       lockWordAndStartDrawing(room, roomId, trimmed);
@@ -782,7 +802,7 @@ module.exports = function(io) {
       const room = rooms.get(roomId);
       if (!room || room.status !== "in_progress" || room.roundPhase !== "drawing") return;
 
-      const trimmed = text.trim();
+      const trimmed = asString(text).trim().slice(0, MAX_GUESS_LENGTH);
       if (!trimmed) return;
 
       const player = room.players.get(socket.id);
