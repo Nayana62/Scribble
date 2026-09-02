@@ -56,26 +56,6 @@ export function GameScreen() {
 
   const canDraw = roundPhase === "drawing";
 
-  const canvasBlock = (
-    <div className="flex-1 min-h-0 relative">
-      <Canvas
-        role={role}
-        replayActions={replayActions}
-        canDraw={canDraw}
-      />
-      <CanvasPhaseOverlays
-        roundPhase={roundPhase}
-        choosingEndsAt={choosingEndsAt}
-        cycleNumber={cycleNumber}
-        isDrawer={isDrawer}
-        wordOptions={wordOptions}
-        drawerName={drawerName}
-        roundResult={state.roundResult}
-        myId={socket.id || ""}
-      />
-    </div>
-  );
-
   const wordStripProps = {
     wordChars,
     wordLength,
@@ -88,40 +68,38 @@ export function GameScreen() {
 
   return (
     <div className="h-dvh md:h-screen w-full flex flex-col overflow-hidden overscroll-none">
-      {/* Mobile: flex column — canvas grows, players/chat fixed height, no page scroll */}
+      {/* Single grid — each panel mounts once and is repositioned between
+          mobile/desktop via .game-grid's media query (see index.css),
+          instead of duplicating every panel across two parallel trees. */}
       <div
-        className="md:hidden gap-y-2 flex flex-col flex-1 min-h-0 overflow-hidden px-2 pt-2"
+        className="game-grid flex-1 min-h-0 px-2 pt-2 md:p-3"
         style={
           inputBarHeight > 0 ? { paddingBottom: inputBarHeight } : undefined
         }
       >
-        <div className="flex flex-col flex-1 min-h-0 overflow-hidden gap-2">
+        <div className="game-grid__word">
           <WordStrip {...wordStripProps} />
-          {canvasBlock}
         </div>
 
-        <div className="shrink-0 h-[30vh] flex gap-x-2 min-h-0 overflow-hidden">
-          <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
-            <PlayerList players={players} hostId={hostId} drawerId={drawerId} correctGuessers={correctGuessers} />
-          </div>
-          <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
-            <ChatPanel role={role} players={players} />
-          </div>
+        <div className="game-grid__canvas">
+          <Canvas role={role} replayActions={replayActions} canDraw={canDraw} />
+          <CanvasPhaseOverlays
+            roundPhase={roundPhase}
+            choosingEndsAt={choosingEndsAt}
+            cycleNumber={cycleNumber}
+            isDrawer={isDrawer}
+            wordOptions={wordOptions}
+            drawerName={drawerName}
+            roundResult={state.roundResult}
+            myId={socket.id || ""}
+          />
         </div>
-      </div>
 
-      {/* Desktop: 3-column grid */}
-      <div className="hidden md:grid flex-1 min-h-0 p-3 grid-cols-12 gap-3 overflow-hidden">
-        <div className="col-span-3 h-full min-h-0 overflow-hidden">
+        <div className="game-grid__players">
           <PlayerList players={players} hostId={hostId} drawerId={drawerId} correctGuessers={correctGuessers} />
         </div>
 
-        <div className="col-span-6 min-h-0 flex flex-col gap-2 overflow-hidden h-full">
-          <WordStrip {...wordStripProps} />
-          {canvasBlock}
-        </div>
-
-        <div className="col-span-3 h-full min-h-0 overflow-hidden">
+        <div className="game-grid__chat">
           <ChatPanel role={role} players={players} />
         </div>
       </div>

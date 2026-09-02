@@ -772,9 +772,10 @@ module.exports = function(io) {
       lockWordAndStartDrawing(room, roomId, trimmed);
     });
 
-    // ── Draw Stroke (live preview segments, emitted per-mousemove) ─────────────
-    // Payload: { prevX, prevY, x, y, color, width }
-    // This event is for real-time rendering on other clients only.
+    // ── Draw Stroke (live preview batches, throttled client-side to ~1/frame) ──
+    // Payload: { points: [{x,y}, ...], color, width }
+    // This event is for real-time rendering on other clients only — the server
+    // relays it opaquely without inspecting its shape.
     // The complete stroke is committed to the action log via `drawAction`.
     socket.on("drawStroke", (data) => {
       const roomId = socketRoomMap.get(socket.id);

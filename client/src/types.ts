@@ -27,14 +27,14 @@ export type DrawAction =
   | { type: "clear" };
 
 /**
- * Extended live-preview stroke segment (emitted per mousemove for real-time rendering).
- * Carries color/width so receiving clients render it with the correct style.
+ * Live-preview stroke batch — the points accumulated since the last
+ * animation-frame flush while the drawer is dragging, sent as one message
+ * (instead of one message per raw pointermove event) for real-time rendering
+ * on other clients. Carries color/width so receiving clients render it with
+ * the correct style. `points` has at least 2 entries.
  */
-export type StrokeSegment = {
-  prevX: number;
-  prevY: number;
-  x: number;
-  y: number;
+export type StrokeBatch = {
+  points: Point[];
   color: string;
   width: number;
 };

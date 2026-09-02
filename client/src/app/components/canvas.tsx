@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { socket } from "../../socket.ts";
-import type { DrawAction, Point, StrokeSegment } from "../../types.ts";
+import type { DrawAction, Point, StrokeBatch } from "../../types.ts";
 import { floodFill } from "../lib/flood-fill.ts";
 import { replayActions } from "../lib/replay-actions.ts";
 import {
@@ -38,6 +38,19 @@ export default function Canvas({
   // Current stroke accumulator (points collected between mousedown → mouseup)
   const currentStrokePoints = useRef<Point[]>([]);
   const isDrawing = useRef(false);
+
+  // ── Live-preview network batching ─────────────────────────────────────────
+  // Points accumulated since the last `drawStroke` flush, sent at most once
+  // per animation frame instead of once per raw pointer event. Separate from
+  // currentStrokePoints (the full stroke committed on mouseup) — this is only
+  // for throttling what goes over the network.
+  const pendingBatchPoints = useRef<Point[]>([]);
+  const batchRafHandle = useRef<number | null>(null);
+
+  // Identifier of the single touch currently drawing — lets us ignore an
+  // accidental second finger touching the canvas mid-stroke instead of the
+  // line jumping to whichever touch happens to be at array index 0.
+  const activeTouchId = useRef<number | null>(null);
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -77,6 +90,38 @@ export default function Canvas({
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.stroke();
+  }
+
+  /** Draw connected segments through a batch of points (received live-preview batch). */
+  function drawPolyline(points: Point[], color: string, width: number) {
+    for (let i = 1; i < points.length; i++) {
+      drawSegment(points[i - 1].x, points[i - 1].y, points[i].x, points[i].y, color, width);
+    }
+  }
+
+  /** Emit whatever points have accumulated since the last flush, if any form a full segment. */
+  function flushStrokeBatch() {
+    const pts = pendingBatchPoints.current;
+    if (pts.length < 2) return;
+
+    socket.emit("drawStroke", {
+      points: [...pts],
+      color: activeColor,
+      width: activeWidth,
+    });
+
+    // Keep the last point as the seed for the next batch so consecutive
+    // batches connect with no visual gap.
+    pendingBatchPoints.current = [pts[pts.length - 1]];
+  }
+
+  /** Throttle flushStrokeBatch to at most once per animation frame. */
+  function scheduleBatchFlush() {
+    if (batchRafHandle.current !== null) return;
+    batchRafHandle.current = requestAnimationFrame(() => {
+      batchRafHandle.current = null;
+      flushStrokeBatch();
+    });
   }
 
   function clearCanvasLocally() {
@@ -132,6 +177,7 @@ export default function Canvas({
     // Pencil
     isDrawing.current = true;
     currentStrokePoints.current = [{ x, y }];
+    pendingBatchPoints.current = [{ x, y }];
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -143,20 +189,24 @@ export default function Canvas({
     drawSegment(prev.x, prev.y, x, y, activeColor, activeWidth);
     pts.push({ x, y });
 
-    // Emit live-preview segment (received by guessers for real-time rendering)
-    socket.emit("drawStroke", {
-      prevX: prev.x,
-      prevY: prev.y,
-      x,
-      y,
-      color: activeColor,
-      width: activeWidth,
-    });
+    // Batch the live-preview point instead of emitting per-event — flushed
+    // to guessers at most once per animation frame (see scheduleBatchFlush).
+    pendingBatchPoints.current.push({ x, y });
+    scheduleBatchFlush();
   };
 
   const handleMouseUp = () => {
     if (!isDrawing.current) return;
     isDrawing.current = false;
+
+    // Flush any batched points immediately so the live preview never lags
+    // behind the stroke that's about to be committed.
+    if (batchRafHandle.current !== null) {
+      cancelAnimationFrame(batchRafHandle.current);
+      batchRafHandle.current = null;
+    }
+    flushStrokeBatch();
+    pendingBatchPoints.current = [];
 
     const pts = currentStrokePoints.current;
     if (pts.length < 2) {
@@ -181,6 +231,11 @@ export default function Canvas({
 
   const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
     if (role !== "drawer" || !canDraw) return;
+    // Already tracking a touch that's drawing — ignore an extra finger
+    // landing on the canvas (e.g. an accidental palm touch) rather than
+    // letting it hijack the stroke.
+    if (isDrawing.current) return;
+
     const touch = e.touches[0];
     if (!touch) return;
     const { x, y } = getCanvasCoords(touch.clientX, touch.clientY);
@@ -196,13 +251,19 @@ export default function Canvas({
       return;
     }
 
+    activeTouchId.current = touch.identifier;
     isDrawing.current = true;
     currentStrokePoints.current = [{ x, y }];
+    pendingBatchPoints.current = [{ x, y }];
   };
 
   const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
     if (role !== "drawer" || !canDraw || activeTool !== "pencil" || !isDrawing.current) return;
-    const touch = e.touches[0];
+    // Track the same finger that started the stroke — ignore any other
+    // simultaneous touch on the canvas.
+    const touch = Array.from(e.touches).find(
+      (t) => t.identifier === activeTouchId.current,
+    );
     if (!touch) return;
     const { x, y } = getCanvasCoords(touch.clientX, touch.clientY);
     const pts = currentStrokePoints.current;
@@ -211,17 +272,18 @@ export default function Canvas({
     drawSegment(prev.x, prev.y, x, y, activeColor, activeWidth);
     pts.push({ x, y });
 
-    socket.emit("drawStroke", {
-      prevX: prev.x,
-      prevY: prev.y,
-      x,
-      y,
-      color: activeColor,
-      width: activeWidth,
-    });
+    pendingBatchPoints.current.push({ x, y });
+    scheduleBatchFlush();
   };
 
-  const handleTouchEnd = () => {
+  const handleTouchEnd = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    // Only finish the stroke when the tracked finger is the one that
+    // lifted/cancelled — an unrelated second finger lifting shouldn't end it.
+    const lifted = Array.from(e.changedTouches).some(
+      (t) => t.identifier === activeTouchId.current,
+    );
+    if (!lifted) return;
+    activeTouchId.current = null;
     handleMouseUp();
   };
 
@@ -242,9 +304,9 @@ export default function Canvas({
 
   // ── Socket listeners (receiving actions from the drawer) ─────────────────────
   useEffect(() => {
-    function handleStrokeBroadcast(data: StrokeSegment) {
-      // Live preview segment — render immediately with its color/width.
-      drawSegment(data.prevX, data.prevY, data.x, data.y, data.color, data.width);
+    function handleStrokeBroadcast(data: StrokeBatch) {
+      // Live preview batch — render immediately with its color/width.
+      drawPolyline(data.points, data.color, data.width);
     }
 
     function handleDrawAction(action: { type: string; [key: string]: unknown }) {
@@ -309,13 +371,22 @@ export default function Canvas({
 
   return (
     <div className="flex flex-col h-full bg-white/10 backdrop-blur-sm rounded-xl border border-white/20 overflow-hidden gap-0">
-      {/* Canvas area */}
-      <div className="flex-1 min-h-0 relative overflow-hidden">
+      {/* Canvas area — the canvas itself is aspect-ratio-locked (3:4 portrait,
+          matching its 600x800 backing resolution) and centered here, rather
+          than stretched to fill the container. This keeps drawings looking
+          identical across every viewer instead of distorted differently per
+          device, and keeps line width scaling uniform.
+          Portrait (rather than landscape) is a deliberate choice: this is a
+          mobile-first app, and mobile's canvas panel is naturally tall and
+          narrow — a portrait ratio fits it with minimal letterboxing.
+          Desktop's wider panel ends up pillarboxed instead, which is an
+          accepted trade-off given mobile is the priority. */}
+      <div className="flex-1 min-h-0 relative overflow-hidden flex items-center justify-center">
         <canvas
           ref={canvasRef}
-          width={800}
-          height={450}
-          className="w-full h-full block bg-white touch-none"
+          width={600}
+          height={800}
+          className="max-w-full max-h-full aspect-[3/4] block bg-white touch-none"
           style={{ cursor: canvasCursor }}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
@@ -324,6 +395,7 @@ export default function Canvas({
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
         />
       </div>
 

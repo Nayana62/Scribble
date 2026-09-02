@@ -26,6 +26,61 @@ html.game-screen-active #root {
   overflow: hidden;
 }
 
+/*
+ * Game screen layout — a single grid so each panel (word strip, canvas,
+ * player list, chat) mounts exactly once and is repositioned between
+ * mobile/desktop via grid-template-areas, instead of rendering two
+ * parallel trees and hiding one with CSS (which mounted every panel,
+ * including Canvas's socket listeners, twice at all times).
+ */
+.game-grid {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  gap: 0.5rem;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: auto minmax(0, 1fr) 26vh;
+  grid-template-areas:
+    "word    word"
+    "canvas  canvas"
+    "players chat";
+}
+
+@media (min-width: 768px) {
+  .game-grid {
+    gap: 0.75rem;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 6fr) minmax(0, 3fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas:
+      "players word   chat"
+      "players canvas chat";
+  }
+}
+
+.game-grid__word {
+  grid-area: word;
+  min-width: 0;
+  min-height: 0;
+}
+.game-grid__canvas {
+  grid-area: canvas;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+.game-grid__players {
+  grid-area: players;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.game-grid__chat {
+  grid-area: chat;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 :root {
