@@ -72,7 +72,9 @@ export function GameScreen() {
           mobile/desktop via .game-grid's media query (see index.css),
           instead of duplicating every panel across two parallel trees. */}
       <div
-        className="game-grid flex-1 min-h-0 px-2 pt-2 md:p-3"
+        className={`game-grid flex-1 min-h-0 px-2 pt-2 md:p-3${
+          isDrawer && canDraw ? " game-grid--toolbar" : ""
+        }`}
         style={
           inputBarHeight > 0 ? { paddingBottom: inputBarHeight } : undefined
         }

@@ -33,23 +33,54 @@ html.game-screen-active #root {
  * parallel trees and hiding one with CSS (which mounted every panel,
  * including Canvas's socket listeners, twice at all times).
  */
+/*
+ * Canvas row/column sizing below is intentionally aspect-ratio-aware
+ * (matching Canvas's 3:4 drawing surface — see canvas.tsx) instead of a
+ * plain flexible track. A plain `1fr` track gives the canvas a box shaped
+ * by whatever space is left over, and since that box's aspect ratio rarely
+ * matches 3:4, the canvas ends up centered inside it with dead space on
+ * two sides (letterboxing/pillarboxing). Sizing the track itself to the
+ * canvas's ideal size instead means the leftover space goes to the
+ * players/chat panels next to it, not wasted as a gap. The `min(...)`
+ * ceiling is a safety cap for unusual viewport shapes (e.g. landscape
+ * phones) so this track can never starve its siblings entirely.
+ *
+ * --toolbar-h accounts for the drawing toolbar (colors + tools row),
+ * which GameScreen adds via .game-grid--toolbar when the local player is
+ * drawing. It shares the "canvas" grid cell, stacked below the drawing
+ * surface (see canvas.tsx), so the cell needs to be that much taller than
+ * the canvas's own ideal size or the surface itself shrinks to stay 3:4
+ * and reintroduces the letterboxing this file exists to avoid.
+ */
 .game-grid {
   display: grid;
   height: 100%;
   min-height: 0;
   gap: 0.5rem;
+  --toolbar-h: 0px;
   grid-template-columns: 1fr 1fr;
-  grid-template-rows: auto minmax(0, 1fr) 26vh;
+  grid-template-rows: auto min(calc((100vw - 1rem) * 4 / 3 + var(--toolbar-h)), 62vh) minmax(140px, 1fr);
   grid-template-areas:
     "word    word"
     "canvas  canvas"
     "players chat";
 }
 
+.game-grid.game-grid--toolbar {
+  --toolbar-h: 98px;
+}
+
+@media (min-width: 640px) {
+  .game-grid.game-grid--toolbar {
+    --toolbar-h: 106px;
+  }
+}
+
 @media (min-width: 768px) {
   .game-grid {
     gap: 0.75rem;
-    grid-template-columns: minmax(0, 3fr) minmax(0, 6fr) minmax(0, 3fr);
+    grid-template-columns:
+      minmax(0, 1fr) min(calc((100vh - 102px - var(--toolbar-h)) * 3 / 4), 60vw) minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
     grid-template-areas:
       "players word   chat"

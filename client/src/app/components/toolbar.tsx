@@ -20,6 +20,17 @@ export const PALETTE_COLORS = [
 export const DEFAULT_COLOR = "#0f172a";
 export const DEFAULT_WIDTH = 6;
 
+/** Discrete brush-size presets, in display order — replaces a continuous
+ * slider with four tap targets, which is both more compact (fits in the
+ * tools row instead of needing its own) and easier to hit precisely on
+ * a touchscreen than a thin slider thumb. */
+const SIZE_PRESETS = [
+  { width: 3, label: "Thin" },
+  { width: 6, label: "Medium" },
+  { width: 12, label: "Thick" },
+  { width: 20, label: "Extra thick" },
+] as const;
+
 type Props = {
   activeColor: string;
   onColorChange: (color: string) => void;
@@ -81,51 +92,9 @@ export function Toolbar({
         })}
       </div>
 
-      {/* ── Row 2: Thickness slider + live preview ───────────────────────── */}
+      {/* ── Row 2: Tools + size presets + undo/clear ─────────────────────── */}
       <div
-        className="flex items-center gap-3 w-full px-1"
-        aria-label="Brush size"
-      >
-        <input
-          id="toolbar-width-slider"
-          type="range"
-          min={2}
-          max={30}
-          step={1}
-          value={activeWidth}
-          onInput={(e) =>
-            onWidthChange(Number((e.target as HTMLInputElement).value))
-          }
-          onChange={(e) => onWidthChange(Number(e.target.value))}
-          className="flex-1 h-2 accent-blue-500 cursor-pointer"
-          aria-label={`Brush size: ${activeWidth}px`}
-        />
-        {/* Live preview circle — size and color update synchronously with slider */}
-        <div
-          className="shrink-0 w-8 h-8 flex items-center justify-center"
-          aria-hidden="true"
-        >
-          <div
-            className="rounded-full"
-            style={{
-              width: activeWidth,
-              height: activeWidth,
-              backgroundColor: activeColor,
-              minWidth: 4,
-              minHeight: 4,
-              maxWidth: "100%",
-              maxHeight: "100%",
-              outline:
-                activeColor === "#ffffff" ? "1px solid #d1d5db" : undefined,
-              transition: "none",
-            }}
-          />
-        </div>
-      </div>
-
-      {/* ── Row 3: Tool buttons ──────────────────────────────────────────── */}
-      <div
-        className="flex items-center gap-1.5"
+        className="flex flex-wrap items-center justify-center gap-1.5"
         role="toolbar"
         aria-label="Drawing tools"
       >
@@ -156,6 +125,47 @@ export function Toolbar({
         >
           <PaintBucket className="w-4 h-4" />
         </button>
+
+        {/* Divider */}
+        <div className="w-px h-6 bg-gray-200 mx-0.5" aria-hidden="true" />
+
+        {/* Brush size presets — dot grows with size, filled in the active color */}
+        <div
+          className="flex items-center gap-1"
+          role="group"
+          aria-label="Brush size"
+        >
+          {SIZE_PRESETS.map(({ width, label }) => {
+            const isActive = width === activeWidth;
+            return (
+              <button
+                key={width}
+                onClick={() => onWidthChange(width)}
+                aria-pressed={isActive}
+                aria-label={`${label} (${width}px)${isActive ? " (selected)" : ""}`}
+                title={`${label} (${width}px)`}
+                className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all ${
+                  isActive
+                    ? "bg-white ring-2 ring-offset-1 ring-blue-500"
+                    : "bg-gray-100 hover:bg-gray-200"
+                }`}
+              >
+                <span
+                  className="rounded-full"
+                  style={{
+                    width: Math.min(width, 20),
+                    height: Math.min(width, 20),
+                    backgroundColor: activeColor,
+                    outline:
+                      activeColor === "#ffffff"
+                        ? "1px solid #d1d5db"
+                        : undefined,
+                  }}
+                />
+              </button>
+            );
+          })}
+        </div>
 
         {/* Divider */}
         <div className="w-px h-6 bg-gray-200 mx-0.5" aria-hidden="true" />

@@ -199,6 +199,18 @@ export default function Canvas({
     if (!isDrawing.current) return;
     isDrawing.current = false;
 
+    const pts = currentStrokePoints.current;
+
+    // A tap with no drag collects a single point. Duplicate it into a
+    // degenerate 2-point stroke — with lineCap "round", a zero-length
+    // segment renders (and replays) as a dot instead of being invisible.
+    if (pts.length === 1) {
+      const p = pts[0];
+      pts.push({ x: p.x, y: p.y });
+      pendingBatchPoints.current.push({ x: p.x, y: p.y });
+      drawSegment(p.x, p.y, p.x, p.y, activeColor, activeWidth);
+    }
+
     // Flush any batched points immediately so the live preview never lags
     // behind the stroke that's about to be committed.
     if (batchRafHandle.current !== null) {
@@ -208,7 +220,6 @@ export default function Canvas({
     flushStrokeBatch();
     pendingBatchPoints.current = [];
 
-    const pts = currentStrokePoints.current;
     if (pts.length < 2) {
       currentStrokePoints.current = [];
       return;
@@ -376,11 +387,11 @@ export default function Canvas({
           than stretched to fill the container. This keeps drawings looking
           identical across every viewer instead of distorted differently per
           device, and keeps line width scaling uniform.
-          Portrait (rather than landscape) is a deliberate choice: this is a
-          mobile-first app, and mobile's canvas panel is naturally tall and
-          narrow — a portrait ratio fits it with minimal letterboxing.
-          Desktop's wider panel ends up pillarboxed instead, which is an
-          accepted trade-off given mobile is the priority. */}
+          The .game-grid canvas track (index.css) is itself sized to this
+          same 3:4 ratio, so in the common case this box already matches the
+          canvas exactly and no centering/letterboxing is visible — the
+          centering here only kicks in as a safety net for viewport shapes
+          extreme enough to hit that track's min()-capped ceiling. */}
       <div className="flex-1 min-h-0 relative overflow-hidden flex items-center justify-center">
         <canvas
           ref={canvasRef}
