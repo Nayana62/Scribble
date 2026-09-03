@@ -13,43 +13,47 @@ A real-time multiplayer drawing and guessing game. One player draws a secret wor
 - Up to 12 players per room; 2 players minimum to play
 - Host starts the game; Host badge transfers automatically if host disconnects
 - Player names persist in `localStorage` between visits
+- Automatic reconnect — a dropped connection (backgrounded tab, brief network blip) rejoins the same room/seat via a saved token, with a 60s grace period before an empty room is cleaned up
 
 ### Drawing & Guessing
 
-- Real-time canvas with mouse and touch drawing
+- Real-time canvas with mouse and touch drawing, batched over the network (throttled to once per animation frame) for smooth live previews without flooding the socket
+- Drawing toolbar (drawer only): pencil + fill (paint-bucket) tools, an 11-color palette, 4 discrete brush-size presets, undo, and clear
 - Sequential turn rotation — everyone draws in join order
-- Drawer chooses a secret word from 3 options
-- Live stroke broadcast to all guessers
-- Canvas clear button for the drawer
+- Drawer chooses a secret word from 3 options (15s to pick; auto-picked if time runs out)
 - Drawer cannot type the secret word in chat (guess blocking)
-- Late joiners see stroke replay for the current round
+- Guesses and chat messages are rate-limited and length-capped per player to keep the game fair
+- Late joiners see the full drawing replayed so they're never looking at a blank canvas
 
 ### Game Flow
 
+- Round announcement overlay at the start of each new cycle, then the drawer's choosing phase, then the live drawing round
 - **3 full cycles** — each player draws 3 times before the game ends
 - **Scoring** — Rank-based + time-bonus for correct guessers (+100/80/60/50 base plus up to +50/40/40/0 time-remaining bonus); drawer gets +10 pts per correct guess in their round (up to 100 max)
-- Round winner toast after each correct guess
+- 5-second round-result overlay revealing the word and every player's points earned that round
 - End screen with podium (top 3, ties supported) and full scoreboard
 - Play again returns everyone to the lobby with reset scores
 
 ### UI
 
 - Four screens: Home → Lobby → Game → End
-- Responsive skribbl.io-style layout (stacked on mobile, 3-column on desktop)
+- Single responsive CSS grid layout — word strip + canvas stacked above players/chat on mobile, a 3-column players / canvas / chat layout on desktop
 - Color-coded player avatars and chat names
-- Live player list with host badge and drawer badge
+- Live player list with host badge, drawer badge, and correct-guess checkmarks
 - Chat log with guesses, system messages, and join/leave notifications
+- Mobile guess input bar that tracks the on-screen keyboard so it's never hidden behind it
 
 ---
 
 ## Tech Stack
 
 |          | Client                          | Server               |
-| -------- | ------------------------------- | -------------------- |
-| Runtime  | React 19 + TypeScript           | Node.js              |
-| Build    | Vite + Tailwind CSS v4          | —                    |
-| Realtime | Socket.IO Client                | Socket.IO + Express  |
+| -------- | -------------------------------- | -------------------- |
+| Runtime  | React 19 + TypeScript           | Node.js               |
+| Build    | Vite + Tailwind CSS v4          | —                     |
+| Realtime | Socket.IO Client                | Socket.IO + Express   |
 | State    | React Context + `useReducer` (`GameProvider`) | In-memory room `Map` |
+| Linting  | oxlint                          | —                     |
 
 ---
 
@@ -92,7 +96,7 @@ VITE_SERVER_URL=http://localhost:3000
 VITE_CLIENT_URL=http://localhost:5173
 ```
 
-Open [http://localhost:5173](http://localhost:5173), enter a name, create a room, and share the invite link with friends.
+Open [http://localhost:5173](http://localhost:5173), enter a name, create a room, and share the invite link with friends. Open a second tab (or use another device on the same network) to try it as a second player — you need at least 2 to start a game.
 
 ---
 
@@ -103,34 +107,43 @@ scribble/
 ├── client/          React frontend (Vite)
 ├── server/          Node.js + Socket.IO backend
 └── docs/            Project-level documentation
-    ├── PROJECT_CHARTER.md   Product overview & features
-    └── ARCHITECTURE.md      System architecture
+    ├── PROJECT_CHARTER.md      Product overview & features
+    ├── ARCHITECTURE.md         System architecture
+    └── testing-issues-log.md   Log of bugs found in real-device testing & their fixes
 ```
 
 Detailed docs per package:
 
-- `client/docs/` — client socket events, component reference, responsive layout
+- `client/docs/` — client architecture, drawing engine, responsive layout, component reference
 - `server/docs/` — room state machine, module responsibilities, game rules
 
 ---
 
 ## Game Rules (Quick Reference)
 
-| Rule                     | Value                          |
-| ------------------------ | ------------------------------ |
-| Max players per room     | 12                             |
-| Min players to start     | 2                              |
-| Cycles before game ends  | 3 (every player draws 3 times) |
-| Points per correct guess | Rank-based base (100/80/60/50) + time bonus (guesser); +10 per guess (drawer, max 100) |
-| Turn order               | Sequential by join order       |
+| Rule                                          | Value                                                                                   |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Max players per room                          | 12                                                                                        |
+| Min players to start                          | 2                                                                                         |
+| Cycles before game ends                       | 3 (every player draws 3 times)                                                           |
+| Choosing time (drawer picks a word)           | 15s                                                                                       |
+| Drawing time per round                        | 80s                                                                                       |
+| Points per correct guess                      | Rank-based base (100/80/60/50) + time bonus (guesser); +10 per guess (drawer, max 100)   |
+| Turn order                                    | Sequential by join order                                                                  |
+| Max player name length                        | 16 characters                                                                             |
+| Max guess / chat message length               | 60 characters                                                                             |
+| Guess rate limit                              | 1 accepted guess per 250ms per player                                                     |
+| Room grace period (after last player leaves)  | 60s, before the room is deleted                                                           |
 
 ---
 
 ## Scripts
 
-| Command          | Where     | What                  |
-| ---------------- | --------- | --------------------- |
-| `npm run dev`    | `client/` | Vite dev server       |
-| `npm run build`  | `client/` | Production build      |
-| `npm run dev`    | `server/` | Nodemon dev server    |
-| `node server.js` | `server/` | Start server directly |
+| Command          | Where     | What                       |
+| ---------------- | --------- | -------------------------- |
+| `npm run dev`    | `client/` | Vite dev server            |
+| `npm run build`  | `client/` | Production build           |
+| `npm run preview`| `client/` | Preview the production build |
+| `npm run lint`   | `client/` | Run oxlint                 |
+| `npm run dev`    | `server/` | Nodemon dev server         |
+| `node server.js` | `server/` | Start server directly      |
