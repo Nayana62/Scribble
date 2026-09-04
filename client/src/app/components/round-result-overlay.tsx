@@ -6,28 +6,16 @@ type Props = {
   myId: string;
 };
 
-/**
- * RoundResultOverlay
- *
- * Shown for 5 seconds at the end of every round (allGuessed, timeout, or
- * drawerDisconnected).  Dismissed automatically when the next CHOOSING_STARTED /
- * NEW_CYCLE_ANNOUNCEMENT action clears `roundResult` from state.
- *
- * Layout mirrors the ChoosingOverlay / RoundAnnouncementOverlay style:
- *  - Full-canvas backdrop with blur
- *  - Centred glass card
- *  - Word reveal header
- *  - Sorted scores list (server already sorted descending)
- */
+// Shown for 5 seconds at the end of every round; dismissed automatically
+// when the next CHOOSING_STARTED / NEW_CYCLE_ANNOUNCEMENT clears roundResult.
 export function RoundResultOverlay({ roundResult, myId }: Props) {
   const { word, scores } = roundResult;
 
   return (
     <div
-      className="absolute inset-0 z-10 flex items-center justify-center bg-black/55 backdrop-blur-[3px] rounded-xl"
+      className="absolute inset-0 z-10 m-auto aspect-[10/9] max-w-full max-h-full flex items-center justify-center bg-black/55 backdrop-blur-[3px] md:rounded-xl"
     >
       <div className="mx-4 w-full max-w-sm rounded-2xl border border-white/20 bg-indigo-950/95 px-5 py-5 shadow-2xl">
-        {/* ── Word reveal header ─────────────────────────────────────── */}
         <div className="text-center mb-4">
           <p className="text-white/60 text-xs font-semibold uppercase tracking-wider mb-1">
             The word was
@@ -37,10 +25,8 @@ export function RoundResultOverlay({ roundResult, myId }: Props) {
           </p>
         </div>
 
-        {/* ── Divider ────────────────────────────────────────────────── */}
         <div className="border-t border-white/15 mb-3" />
 
-        {/* ── Scores list ────────────────────────────────────────────── */}
         <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto">
           {scores.map((entry, idx) => {
             const isFirst = idx === 0 && entry.pointsEarned > 0;
@@ -57,7 +43,6 @@ export function RoundResultOverlay({ roundResult, myId }: Props) {
                       : "bg-white/8 border border-white/10"
                 }`}
               >
-                {/* Rank medal or position number */}
                 <span className="text-base leading-none w-5 text-center shrink-0 select-none">
                   {idx === 0 && entry.pointsEarned > 0
                     ? "🥇"
@@ -68,7 +53,6 @@ export function RoundResultOverlay({ roundResult, myId }: Props) {
                         : <span className="text-white/40 text-xs font-bold">{idx + 1}</span>}
                 </span>
 
-                {/* Player name */}
                 <span
                   className={`flex-1 font-semibold text-sm truncate ${
                     isMe ? "text-blue-200" : "text-white/90"
@@ -82,7 +66,6 @@ export function RoundResultOverlay({ roundResult, myId }: Props) {
                   )}
                 </span>
 
-                {/* Points earned this round */}
                 <span
                   className={`shrink-0 font-black text-sm tabular-nums ${
                     entry.pointsEarned > 0
@@ -99,7 +82,6 @@ export function RoundResultOverlay({ roundResult, myId }: Props) {
           })}
         </div>
 
-        {/* ── Footer hint ────────────────────────────────────────────── */}
         <p className="text-center text-white/35 text-[10px] mt-3 select-none">
           Next round starting soon…
         </p>

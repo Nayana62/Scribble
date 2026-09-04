@@ -8,33 +8,15 @@ const GUESSER_MAX_BONUS = [50,  40, 40];
 /**
  * Compute per-player point deltas for a completed round.
  *
- * Uses room.correctGuesses (ordered list of { playerId, guessedAt, name }) and
- * room.roundEndsAt (epoch-ms the drawing timer was set to expire) for time-bonus math.
+ * Guesser rank i: base + round(maxBonus * timeRemainingAtGuess / totalRoundDurationMs).
+ * Drawer: min(100, 10 * correctGuesserCount). Everyone else: 0.
  *
- * Scoring formula:
- *   Guesser rank i (0-indexed):
- *     base     = GUESSER_BASE[i]      (100 / 80 / 60 / 50 for 4th+)
- *     maxBonus = GUESSER_MAX_BONUS[i] (50 / 40 / 40 / 0 for 4th+)
- *     timeBonus = Math.round(maxBonus * (timeRemainingAtGuess / totalRoundDurationMs))
- *     earned  = base + timeBonus
- *   Drawer:
- *     earned = Math.min(100, 10 * correctGuesserCount)  — 0 if no one guessed
- *   Everyone else (non-guesser, non-drawer): 0 pts
- *
- * @param {object} room               — room state object
- * @param {number} totalRoundDurationMs — full draw-round length in ms
- * @returns {{
- *   scores: Array<{playerId: string, name: string, pointsEarned: number}>,
- *   guessScoreMap: Map<string, number>,
- *   drawerPoints: number
- * }}
- * `scores` is sorted descending by pointsEarned and includes all current room members
+ * Returned `scores` is sorted descending and includes all current room members
  * plus any disconnected correct guessers (name preserved at guess time).
  */
 function computeRoundScores(room, totalRoundDurationMs) {
   const correctGuesses = room.correctGuesses ?? [];
 
-  // Build a map: playerId → points earned (for guessers only)
   const guessScoreMap = new Map();
   for (let i = 0; i < correctGuesses.length; i++) {
     const guess    = correctGuesses[i];
@@ -52,7 +34,6 @@ function computeRoundScores(room, totalRoundDurationMs) {
 
   const drawerPoints = Math.min(100, 10 * correctGuesses.length);
 
-  // Build the full scores list: current room members first …
   const included = new Set();
   const scores   = [];
 
@@ -67,7 +48,7 @@ function computeRoundScores(room, totalRoundDurationMs) {
     }
   }
 
-  // … then any correct guesser who disconnected before the reveal (name stored at guess time)
+  // Include correct guessers who disconnected before the reveal.
   for (const guess of correctGuesses) {
     if (!included.has(guess.playerId)) {
       scores.push({
@@ -83,10 +64,8 @@ function computeRoundScores(room, totalRoundDurationMs) {
   return { scores, guessScoreMap, drawerPoints };
 }
 
-/**
- * Increment room.cyclesCompleted when the next drawer wraps back to index 0
- * in join order.  Called from startRound before assigning nextDrawer.
- */
+// Increments room.cyclesCompleted when the next drawer wraps back to index 0
+// in join order. Called from startRound before assigning nextDrawer.
 function checkCycleCompleted(room, currentDrawerId) {
   const order = room.joinOrder.filter((id) => room.players.has(id));
   if (order.length === 0 || !currentDrawerId) return;

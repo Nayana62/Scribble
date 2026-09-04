@@ -20,7 +20,9 @@ export function WordStrip({
   cycleNumber,
 }: Props) {
   return (
-    <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-4 grid grid-cols-[1fr_auto_1fr] items-center shrink-0 h-16 select-none">
+    // h-14 / md:h-16 must stay in sync with --word-h in index.css — the canvas
+    // grid track subtracts it to work out how tall the drawing surface can be.
+    <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-3 md:px-4 grid grid-cols-[1fr_auto_1fr] items-center shrink-0 h-14 md:h-16 select-none">
       {/* Left Column: Round Indicator */}
       <div className="flex flex-col items-start justify-center">
         <span className="text-white/40 text-[10px] sm:text-xs font-bold uppercase tracking-wider leading-none mb-1">

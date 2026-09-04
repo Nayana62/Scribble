@@ -177,7 +177,7 @@ export const ChatLog = ({ players }: Props) => {
           return (
             <div
               key={entry.id}
-              className={`text-xs text-center font-semibold px-2 py-1.5 rounded-lg my-1 ${
+              className={`text-[11px] md:text-xs text-center font-semibold px-2 py-1 md:py-1.5 rounded-lg my-0.5 md:my-1 ${
                 entry.text.startsWith("✅")
                   ? "text-emerald-300 bg-emerald-900/30"
                   : "text-blue-200 bg-white/10"
@@ -188,14 +188,13 @@ export const ChatLog = ({ players }: Props) => {
           );
         }
 
-        // Look up the current color of the sender from players prop
         const matchingPlayer = players.find((p) => p.id === entry.senderId);
-        const nameColor = matchingPlayer ? matchingPlayer.color : "#93c5fd"; // fallback to text-blue-300 hex equivalents if player left
+        const nameColor = matchingPlayer ? matchingPlayer.color : "#93c5fd"; // sender left the room
 
         return (
           <div
             key={entry.id}
-            className={`text-sm px-2 py-1.5 rounded-lg break-words ${
+            className={`text-[13px] md:text-sm px-2 py-1 md:py-1.5 rounded-lg break-words ${
               entry.correct
                 ? "bg-emerald-900/50 border border-emerald-500/40 text-emerald-200 font-bold"
                 : "bg-white/10 text-white/90"

@@ -40,7 +40,7 @@ function saveToken(roomId: string, token: string): void {
   try {
     sessionStorage.setItem(tokenKey(roomId), token);
   } catch {
-    // sessionStorage unavailable (private browsing restrictions etc.) — ignore.
+    // sessionStorage unavailable (e.g. private browsing) — ignore.
   }
 }
 
@@ -74,18 +74,16 @@ const GameContext = createContext<GameContextValue | null>(null);
 function useGameSocketEvents(
   dispatch: React.Dispatch<Action>,
   showNotice: (msg: string, durationMs?: number) => void,
-  /** A ref to always-current GameState — avoids stale closure in socket handlers. */
   stateRef: React.RefObject<GameState>,
 ) {
   useEffect(() => {
-    // ── Phase 1: rejoin on every (re)connect ─────────────────────────────────
     // Fires on initial connect AND on automatic Socket.IO reconnects.
     function handleConnect() {
       const roomId = stateRef.current.roomId;
-      if (!roomId) return; // Not in a room — nothing to rejoin.
+      if (!roomId) return;
 
       const token = loadToken(roomId);
-      if (!token) return; // No saved token for this room.
+      if (!token) return;
 
       socket.emit("rejoin", { roomId, token }, (ack: RejoinAckPayload) => {
         if ("success" in ack && ack.success) {
@@ -95,10 +93,8 @@ function useGameSocketEvents(
             snapshot: ack.snapshot,
             socketId: socket.id,
           });
-          // Re-save token (server echoes it back; token itself hasn't changed).
           saveToken(roomId, ack.token);
         } else {
-          // Token no longer valid — clear it.
           clearToken(roomId);
 
           if ("error" in ack) {
@@ -109,19 +105,16 @@ function useGameSocketEvents(
             }
           }
 
-          // Fall through to home screen.
           dispatch({ type: "RESET_TO_HOME" });
         }
       });
     }
 
-    // ── Phase 1: persist token on successful join / create ───────────────────
     function handleJoinedRoomSuccess(payload: JoinedRoomSuccessPayload) {
       dispatch({ type: "JOINED_ROOM_SUCCESS", ...payload });
       saveToken(payload.roomId, payload.token);
     }
 
-    // ── Phase 4: server closed the room ─────────────────────────────────────
     function handleRoomClosed({ reason }: { reason: string }) {
       const roomId = stateRef.current.roomId;
       if (roomId) clearToken(roomId);
@@ -189,16 +182,13 @@ function useGameSocketEvents(
     });
 
     socket.on("guessResult", ({ senderId, correct }: GuessResultPayload) => {
-      // Track which players have guessed correctly so the player list can show checkmarks.
       if (correct && senderId) {
         dispatch({ type: "CORRECT_GUESSER_ADDED", playerId: senderId });
       }
     });
 
-    socket.on("roundTimeout", () => {
-      // roundTimeout is no longer emitted by the server; this handler is a safety no-op
-      // kept here to prevent unhandled-event warnings during a server/client version skew.
-    });
+    // Safety no-op: no longer emitted by the server, kept for version skew.
+    socket.on("roundTimeout", () => {});
 
     socket.on("waitingForPlayers", () => {
       dispatch({ type: "WAITING_FOR_PLAYERS" });
@@ -245,13 +235,9 @@ function useGameSocketEvents(
     };
   }, [dispatch, showNotice, stateRef]);
 
-  // ── Actively disconnect on page unload ───────────────────────────────────
-  // `pagehide` fires on tab close, navigation away, and mobile backgrounding.
-  // Calling `socket.disconnect()` tears down the WebSocket immediately, which
-  // causes the server's `disconnect` handler to fire without waiting for a
-  // heartbeat timeout — giving near-instant mid-game departure detection.
-  // Note: if `pagehide` never fires (hard OS kill), the ping-heartbeat timeout
-  // is still the fallback; nothing can make that case instant.
+  // `pagehide` fires on tab close, navigation, and mobile backgrounding.
+  // Disconnecting immediately (rather than waiting on the heartbeat timeout)
+  // gives near-instant mid-game departure detection.
   useEffect(() => {
     function handlePageHide() {
       if (stateRef.current.roomId) {
@@ -266,10 +252,7 @@ function useGameSocketEvents(
 export function GameProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(gameReducer, initialGameState);
 
-  /**
-   * Always-current ref to state, used inside socket event handlers to avoid
-   * stale closures without adding `state` as a useEffect dependency.
-   */
+  // Always-current ref, used in socket handlers to avoid stale closures.
   const stateRef = useRef(state);
   useEffect(() => {
     stateRef.current = state;

@@ -27,7 +27,7 @@ export const GuessForm = ({ role }: Props) => {
   };
 
   return (
-    <div className="shrink-0 p-2 border-t border-white/15">
+    <div className="shrink-0 p-1.5 md:p-2 border-t border-white/15">
       {blockedMsg && (
         <p className="text-red-300 text-xs mb-1 font-semibold">{blockedMsg}</p>
       )}
@@ -38,11 +38,11 @@ export const GuessForm = ({ role }: Props) => {
           placeholder={role === "drawer" ? "Chat..." : "Type your guess…"}
           maxLength={60}
           onChange={(e) => setGuessInput(e.target.value)}
-          className="flex-1 min-w-0 bg-white/15 text-white placeholder-white/40 text-sm rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-400/60 border border-white/20 scroll-m-0"
+          className="flex-1 min-w-0 bg-white/15 text-white placeholder-white/40 text-sm rounded-lg px-3 py-1.5 md:py-2 outline-none focus:ring-2 focus:ring-blue-400/60 border border-white/20 scroll-m-0"
         />
         <button
           type="submit"
-          className="bg-blue-500 hover:bg-blue-400 text-white font-bold text-sm px-3 py-2 rounded-lg transition-colors shrink-0"
+          className="bg-blue-500 hover:bg-blue-400 text-white font-bold text-sm px-3 py-1.5 md:py-2 rounded-lg transition-colors shrink-0"
         >
           <Send className="w-4 h-4" />
         </button>

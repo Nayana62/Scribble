@@ -119,14 +119,14 @@ export type Action =
   | { type: "PLAY_AGAIN" }
   | { type: "RESET_TO_HOME" }
   | {
-      /** Phase 1: hydrate entire client state from server snapshot after a successful rejoin. */
+      /** Hydrate entire client state from server snapshot after a successful rejoin. */
       type: "REJOIN_SUCCESS";
       roomId: string;
       snapshot: RoomSnapshot;
       socketId: string | undefined;
     }
   | {
-      /** Phase 4: server closed the room (grace period expired or explicit close). */
+      /** Server closed the room (grace period expired or explicit close). */
       type: "ROOM_CLOSED";
     };
 

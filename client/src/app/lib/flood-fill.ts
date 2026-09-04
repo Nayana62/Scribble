@@ -34,15 +34,6 @@ function colorDistance(
   return Math.sqrt(dr * dr + dg * dg + db * db);
 }
 
-/**
- * Run a flood fill on the given canvas context.
- *
- * @param ctx       - 2D rendering context
- * @param startX    - X coordinate of the seed pixel (canvas space, integer)
- * @param startY    - Y coordinate of the seed pixel (canvas space, integer)
- * @param fillColor - CSS hex color to fill with (e.g. "#ef4444")
- * @param tolerance - Per-channel Euclidean distance threshold (default 40)
- */
 export function floodFill(
   ctx: CanvasRenderingContext2D,
   startX: number,

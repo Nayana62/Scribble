@@ -54,15 +54,10 @@ const {
   MIN_GUESS_INTERVAL_MS,
 } = require("../game/constants");
 
-/** Grace period before an empty room is deleted (seconds). */
 const ROOM_GRACE_SEC = 60;
 
-/**
- * Coerce a socket payload field to a string, falling back when it isn't one.
- * Socket.IO payloads are untrusted network input — a client (malicious or
- * buggy) can send any JSON shape, so call sites must not assume `typeof x
- * === "string"` just because a field is present.
- */
+// Socket payloads are untrusted input — a client can send any JSON shape,
+// so call sites must not assume a field is a string just because it's present.
 function asString(value, fallback = "") {
   return typeof value === "string" ? value : fallback;
 }
@@ -82,15 +77,7 @@ module.exports = function(io) {
       });
     }
 
-    /**
-     * Compute this round's correct-guess scores and apply the point deltas to
-     * each player's running total. Shared by `endRound` (which also broadcasts
-     * a `roundResult` overlay) and the insufficient-players path (which needs
-     * scores committed before the game ends, but skips the overlay).
-     *
-     * @param {object} room
-     * @returns {{scores: Array, guessScoreMap: Map, drawerPoints: number}}
-     */
+    // Shared by endRound() and the insufficient-players path in leaveCurrentRoom().
     function applyRoundScoreDeltas(room) {
       const { scores, guessScoreMap, drawerPoints } = computeRoundScores(
         room,
@@ -103,64 +90,35 @@ module.exports = function(io) {
         } else if (guessScoreMap.has(playerId)) {
           player.score += guessScoreMap.get(playerId);
         }
-        // non-guessing non-drawer players earn 0 — no change
       }
 
       return { scores, guessScoreMap, drawerPoints };
     }
 
-    /**
-     * Consolidated round-ending logic.
-     *
-     * 1. Cancels all timers unconditionally.
-     * 2. Computes and applies multi-guesser scores from room.correctGuesses.
-     * 3. Emits `roundResult` to all clients (word + sorted scores).
-     * 4. After 5 seconds, advances turn order and starts the next choosing phase.
-     *
-     * Handles all three reasons the same way:
-     *  'allGuessed'         — everyone eligible has guessed correctly
-     *  'timeout'            — draw timer expired
-     *  'drawerDisconnected' — drawer left (already-earned guesser points are kept)
-     *
-     * @param {object} room
-     * @param {string} roomId
-     * @param {'allGuessed'|'timeout'|'drawerDisconnected'} reason
-     */
+    // Ends the round for any of: everyone guessed, the timer expired, or the
+    // drawer disconnected. Clears timers, applies scores, shows the result
+    // overlay for 5s, then advances to the next turn.
     function endRound(room, roomId, reason) {
-      // Always clear all timers first — regardless of why we're ending.
       clearRoundTimer(roomId);
       room.roundPhase    = null;
       room.choosingOptions = null;
 
-      // Compute and apply scores before clearing correctGuesses.
       const { scores } = applyRoundScoreDeltas(room);
 
       const word = room.word ?? "";
 
-      // Emit roundResult to everyone — this drives the 5-second overlay.
       io.to(roomId).emit("roundResult", { word, scores });
-
-      // Broadcast updated running totals.
       broadcastPlayersUpdate(roomId);
 
-      // Clear per-round state.
       room.correctGuesses = [];
       room.roundEndsAt    = null;
 
-      // After the overlay has had its 5 seconds, advance to the next turn.
       setTimeout(() => startRound(roomId), 5000);
     }
 
-    /**
-     * Check if every currently-eligible non-drawer player has guessed correctly.
-     * If so, end the round immediately.
-     *
-     * "Eligible" is computed fresh each call — disconnected players are excluded,
-     * late joiners are included as soon as they appear in room.players.
-     *
-     * @param {object} room
-     * @param {string} roomId
-     */
+    // Ends the round early once every currently-connected non-drawer has
+    // guessed correctly. Recomputed fresh each call so it stays correct as
+    // players disconnect or late-join mid-round.
     function checkAllGuessed(room, roomId) {
       if (room.roundPhase !== "drawing") return;
 
@@ -168,7 +126,7 @@ module.exports = function(io) {
         (id) => id !== room.drawerId,
       );
 
-      // If only the drawer remains, don't trigger allGuessed — let the timer run.
+      // Only the drawer remains — let the timer run instead of ending immediately.
       if (eligible.length === 0) return;
 
       const allGuessed = eligible.every((id) =>
@@ -178,14 +136,8 @@ module.exports = function(io) {
       if (allGuessed) endRound(room, roomId, "allGuessed");
     }
 
-    /**
-     * Lock in a word and start the draw round. Single path for drawer pick,
-     * early pick, and auto-pick on choosing timeout.
-     *
-     * @param {object} room
-     * @param {string} roomId
-     * @param {string} word
-     */
+    // Locks in a word and starts the draw round — shared by drawer pick,
+    // early pick, and auto-pick on choosing timeout.
     function lockWordAndStartDrawing(room, roomId, word) {
       if (!room.choosingOptions || !room.choosingOptions.includes(word)) {
         return;
@@ -204,7 +156,6 @@ module.exports = function(io) {
       room.choosingOptions = null;
       room.roundPhase = "drawing";
       room.actionLog = [];
-      // Reset per-round guess tracking for the new drawing phase.
       room.correctGuesses = [];
 
       const drawerPlayer = room.players.get(room.drawerId);
@@ -313,9 +264,7 @@ module.exports = function(io) {
       }
     }
 
-    /**
-     * Drawer left during choosing — skip straight to next turn's choosing phase.
-     */
+    // Drawer left during choosing — skip straight to the next turn.
     function skipChoosing(room, roomId) {
       clearTimer(roomId, "choosing");
       room.roundPhase = null;
@@ -325,15 +274,8 @@ module.exports = function(io) {
       startRound(roomId);
     }
 
-    /**
-     * Conclude the game right now and show final standings — used both when
-     * all cycles complete normally and when the player count drops too low
-     * to continue (the sole remaining player is declared the winner with
-     * whatever score they have).
-     *
-     * @param {object} room
-     * @param {string} roomId
-     */
+    // Ends the game and shows final standings — used both when all cycles
+    // complete normally and when the player count drops too low to continue.
     function finishGame(room, roomId) {
       clearRoundTimer(roomId);
       room.status = "finished";
@@ -356,13 +298,11 @@ module.exports = function(io) {
       const room = rooms.get(roomId);
       if (!room) return;
 
-      // Stale scheduled call (e.g. from an endRound() timeout) arriving after
-      // the game was already concluded by another path — nothing to do.
+      // A scheduled call (e.g. from an endRound() timeout) can arrive after
+      // the game was already concluded by another path.
       if (room.status === "finished") return;
 
       if (room.players.size < MIN_PLAYERS) {
-        // Not enough players left to continue a game that was in progress —
-        // end it now rather than parking the room in "waiting".
         finishGame(room, roomId);
         return;
       }
@@ -381,13 +321,8 @@ module.exports = function(io) {
       startChoosingPhase(roomId);
     }
 
-    /**
-     * Remove a player from their current room and handle all downstream effects:
-     * host reassignment, departure broadcasts, grace timers, etc.
-     *
-     * This is the single departure path — called from both `disconnect` and
-     * the Phase 3 fast-path when `leaving` + `disconnect` arrive in quick succession.
-     */
+    // Single departure path — called from both `disconnect` and an explicit
+    // `leaveRoom`. Handles host reassignment, departure broadcasts, and grace timers.
     function leaveCurrentRoom(socket) {
       const currentRoomId = socketRoomMap.get(socket.id);
       if (!currentRoomId) return;
@@ -401,7 +336,6 @@ module.exports = function(io) {
       const player = room.players.get(socket.id);
       const playerName = player ? player.name : "A player";
 
-      // Clean up the token reverse-lookup.
       if (player && player.token) {
         tokenRoomMap.delete(player.token);
       }
@@ -413,19 +347,15 @@ module.exports = function(io) {
         name: playerName,
       });
 
-      // ── Room now empty: start grace period instead of deleting immediately ───
       if (room.players.size === 0) {
-        // This covers the "last player leaves from the finished screen" case as well —
-        // no special handling needed. The grace timer will clean up the room as usual.
-        // Pause any active round timer so it doesn't fire or keep counting down
-        // while nobody is connected.
+        // Room is empty — start a grace period instead of deleting immediately,
+        // and pause any active timer so it doesn't keep counting down unattended.
         if (room.status === "in_progress") {
           pauseTimer(currentRoomId, "drawing");
           pauseTimer(currentRoomId, "choosing");
         }
 
         startGrace(currentRoomId, ROOM_GRACE_SEC, () => {
-          // Grace window elapsed with no reconnect — clean up.
           clearAllTimers(currentRoomId);
           io.to(currentRoomId).emit("roomClosed", { reason: "empty" });
           rooms.delete(currentRoomId);
@@ -448,16 +378,13 @@ module.exports = function(io) {
 
       if (room.players.size < MIN_PLAYERS) {
         if (room.status === "in_progress") {
-          // A game was running and can no longer continue — commit any points
-          // already earned this round, then end the game immediately with
-          // whoever remains declared the winner (instead of parking in the lobby).
+          // Commit any points already earned this round, then end the game
+          // immediately with whoever remains, instead of parking in the lobby.
           if (room.roundPhase === "drawing") {
             applyRoundScoreDeltas(room);
           }
           finishGame(room, currentRoomId);
         } else {
-          // No active game (still in the lobby, or already on the results
-          // screen) — just reset to waiting for more players.
           clearRoundTimer(currentRoomId);
           room.status = "waiting";
           room.drawerId = null;
@@ -482,13 +409,11 @@ module.exports = function(io) {
           endRound(room, currentRoomId, "drawerDisconnected");
         }
       } else if (room.status === "in_progress" && room.roundPhase === "drawing") {
-        // A non-drawer left during the drawing phase — re-evaluate eligibility.
-        // If everyone still connected has already guessed, end the round now.
         checkAllGuessed(room, currentRoomId);
       }
     }
 
-    // ── Create Room ────────────────────────────────────────────────────────────
+    // ── Create Room ──────────────────────────────────────────────────────────
     socket.on("createRoom", ({ name }) => {
       leaveCurrentRoom(socket);
 
@@ -514,7 +439,7 @@ module.exports = function(io) {
       broadcastPlayersUpdate(roomId);
     });
 
-    // ── Join Room ──────────────────────────────────────────────────────────────
+    // ── Join Room ────────────────────────────────────────────────────────────
     socket.on("joinRoom", ({ roomId, name }) => {
       leaveCurrentRoom(socket);
 
@@ -597,9 +522,9 @@ module.exports = function(io) {
       }
     });
 
-    // ── Rejoin (reconnect with existing token) ─────────────────────────────────
+    // ── Rejoin (reconnect with existing token) ──────────────────────────────
     socket.on("rejoin", ({ roomId, token }, ack) => {
-      if (typeof ack !== "function") return; // ignore fire-and-forget misuse
+      if (typeof ack !== "function") return;
 
       const normalizedId = asString(roomId).trim().toUpperCase();
       const room = rooms.get(normalizedId);
@@ -609,7 +534,6 @@ module.exports = function(io) {
         return;
       }
 
-      // Find the player record that owns this token.
       let oldSocketId = null;
       let player = null;
       for (const [sid, p] of room.players) {
@@ -621,27 +545,22 @@ module.exports = function(io) {
       }
 
       if (!player) {
-        // Room exists but token doesn't match anyone — player was removed.
         ack({ error: "PLAYER_NOT_FOUND" });
         return;
       }
 
-      // ── Re-associate player with the new socket ────────────────────────────
+      // Re-associate the player record with the new socket id everywhere it's referenced.
       const oldId = oldSocketId;
       const newId = socket.id;
 
-      // Update the player record's own id field.
       player.id = newId;
 
-      // Re-key the players Map.
       room.players.delete(oldId);
       room.players.set(newId, player);
 
-      // Update joinOrder.
       const joIdx = room.joinOrder.indexOf(oldId);
       if (joIdx !== -1) room.joinOrder[joIdx] = newId;
 
-      // Update hostId / drawerId references.
       if (room.hostId === oldId) room.hostId = newId;
       if (room.drawerId === oldId) room.drawerId = newId;
 
@@ -651,19 +570,15 @@ module.exports = function(io) {
         if (guess.playerId === oldId) guess.playerId = newId;
       }
 
-      // Update socket → room map.
       socketRoomMap.delete(oldId);
       socketRoomMap.set(newId, normalizedId);
 
-      // Re-join Socket.IO room.
       socket.join(normalizedId);
 
-      // Cancel the grace timer if the room was waiting for someone.
       if (hasGrace(normalizedId)) {
         cancelGrace(normalizedId);
         console.log(`Room ${normalizedId}: grace period cancelled — ${player.name} rejoined.`);
 
-        // Resume any paused timers.
         if (isTimerPaused(normalizedId, "drawing")) {
           resumeTimer(normalizedId, "drawing", () => {
             const current = rooms.get(normalizedId);
@@ -683,7 +598,6 @@ module.exports = function(io) {
         }
       }
 
-      // ── Build room snapshot for client resync ──────────────────────────────
       const wordHint = room.word
         ? room.word.split("").map(c => (c === " " ? " " : "_")).join("")
         : null;
@@ -703,17 +617,14 @@ module.exports = function(io) {
 
       ack({ success: true, token, snapshot });
 
-      // Send canvas history if in drawing phase.
       if (room.roundPhase === "drawing" && room.actionLog.length > 0) {
         socket.emit("actionReplay", { actions: room.actionLog });
       }
 
-      // If rejoining player is drawer and we're in drawing phase, re-send word.
       if (room.roundPhase === "drawing" && room.drawerId === newId && room.word) {
         socket.emit("yourWord", { word: room.word });
       }
 
-      // If rejoining player is drawer and we're in choosing phase, re-send options.
       if (room.roundPhase === "choosing" && room.drawerId === newId && room.choosingOptions) {
         const drawerPlayer = room.players.get(newId);
         const drawerName = drawerPlayer ? drawerPlayer.name : "Drawer";
@@ -730,7 +641,7 @@ module.exports = function(io) {
       console.log(`Rejoin: ${player.name} (${oldId} → ${newId}) in room ${normalizedId}`);
     });
 
-    // ── Start Game (host only) ─────────────────────────────────────────────────
+    // ── Start Game (host only) ──────────────────────────────────────────────
     socket.on("startGame", () => {
       const roomId = socketRoomMap.get(socket.id);
       if (!roomId) return;
@@ -758,7 +669,7 @@ module.exports = function(io) {
       startRound(roomId);
     });
 
-    // ── Word Chosen (drawer picks during choosing phase) ───────────────────────
+    // ── Word Chosen (drawer picks during choosing phase) ────────────────────
     socket.on("wordChosen", ({ word }) => {
       const roomId = socketRoomMap.get(socket.id);
       if (!roomId) return;
@@ -773,9 +684,7 @@ module.exports = function(io) {
     });
 
     // ── Draw Stroke (live preview batches, throttled client-side to ~1/frame) ──
-    // Payload: { points: [{x,y}, ...], color, width }
-    // This event is for real-time rendering on other clients only — the server
-    // relays it opaquely without inspecting its shape.
+    // Real-time rendering only — relayed opaquely without inspecting its shape.
     // The complete stroke is committed to the action log via `drawAction`.
     socket.on("drawStroke", (data) => {
       const roomId = socketRoomMap.get(socket.id);
@@ -783,12 +692,10 @@ module.exports = function(io) {
       const room = rooms.get(roomId);
       if (!room || socket.id !== room.drawerId || room.roundPhase !== "drawing") return;
 
-      // Relay the segment with color/width so guessers render it correctly.
       socket.to(roomId).emit("strokeBroadcast", data);
     });
 
-    // ── Draw Action (committed actions appended to the log) ────────────────────
-    // type: 'stroke' | 'fill' | 'clear' | 'undo'
+    // ── Draw Action (committed actions appended to the log) ──────────────────
     socket.on("drawAction", (action) => {
       const roomId = socketRoomMap.get(socket.id);
       if (!roomId) return;
@@ -796,7 +703,6 @@ module.exports = function(io) {
       if (!room || socket.id !== room.drawerId || room.status !== "in_progress" || room.roundPhase !== "drawing") return;
 
       if (action.type === "stroke") {
-        // { type, points:[{x,y},...], color, width }
         room.actionLog.push({
           type: "stroke",
           points: action.points,
@@ -804,7 +710,6 @@ module.exports = function(io) {
           width: action.width,
         });
       } else if (action.type === "fill") {
-        // { type, x, y, color }
         room.actionLog.push({
           type: "fill",
           x: action.x,
@@ -812,23 +717,20 @@ module.exports = function(io) {
           color: action.color,
         });
       } else if (action.type === "clear") {
-        // Append a clear entry — subsequent undo can remove it and replay prior state.
+        // Append rather than reset — undo can pop it and replay prior state.
         room.actionLog.push({ type: "clear" });
       } else if (action.type === "undo") {
-        // Pop the most recent entry instead of appending.
         if (room.actionLog.length > 0) {
           room.actionLog.pop();
         }
       } else {
-        // Unknown action type — ignore.
         return;
       }
 
-      // Relay to all other clients in the room so their canvases stay in sync.
       socket.to(roomId).emit("drawAction", action);
     });
 
-    // ── Submit Guess / Chat ───────────────────────────────────────────────────
+    // ── Submit Guess / Chat ──────────────────────────────────────────────────
     socket.on("submitGuess", ({ text }) => {
       const roomId = socketRoomMap.get(socket.id);
       if (!roomId) return;
@@ -853,7 +755,6 @@ module.exports = function(io) {
       const matchesWord =
         trimmed.toLowerCase() === (room.word || "").toLowerCase();
 
-      // ── A. Drawer path ──────────────────────────────────────────────────────
       if (isDrawer) {
         if (matchesWord) {
           socket.emit("guessBlocked", { text: trimmed });
@@ -868,12 +769,11 @@ module.exports = function(io) {
         return;
       }
 
-      // ── B. Already-guessed player: treat subsequent messages as normal chat ──
       const alreadyGuessed = room.correctGuesses.some(
         (g) => g.playerId === socket.id,
       );
       if (alreadyGuessed) {
-        // Re-evaluation suppressed; render as a plain (incorrect-style) chat entry.
+        // Treat further messages from a correct guesser as plain chat.
         io.to(roomId).emit("guessResult", {
           text: trimmed,
           senderId: socket.id,
@@ -883,16 +783,13 @@ module.exports = function(io) {
         return;
       }
 
-      // ── C. Correct guess (first time) ───────────────────────────────────────
       if (matchesWord) {
-        // Record the guess with timestamp and name (name stored so it survives disconnect).
         room.correctGuesses.push({
           playerId: socket.id,
           guessedAt: Date.now(),
           name: senderName,
         });
 
-        // To the guesser: confirm their own correct guess (they see their text + checkmark).
         socket.emit("guessResult", {
           text: trimmed,
           senderId: socket.id,
@@ -901,7 +798,7 @@ module.exports = function(io) {
           isSelfConfirm: true,
         });
 
-        // To everyone else: system-style notification — NO word text to prevent leaking.
+        // Everyone else gets a system notification with no word text, to avoid leaking it.
         socket.to(roomId).emit("guessResult", {
           senderId: socket.id,
           senderName,
@@ -909,12 +806,10 @@ module.exports = function(io) {
           isSystemGuess: true,
         });
 
-        // Check whether all eligible players have now guessed; end early if so.
         checkAllGuessed(room, roomId);
         return;
       }
 
-      // ── D. Wrong guess ──────────────────────────────────────────────────────
       io.to(roomId).emit("guessResult", {
         text: trimmed,
         senderId: socket.id,
@@ -923,9 +818,8 @@ module.exports = function(io) {
       });
     });
 
-    // ── Play Again ────────────────────────────────────────────────────────────
+    // ── Play Again ───────────────────────────────────────────────────────────
     socket.on("playAgain", (ack) => {
-      // Support both ack-based calls (Phase 4) and legacy fire-and-forget.
       const respond = typeof ack === "function" ? ack : () => {};
 
       const roomId = socketRoomMap.get(socket.id);
@@ -966,9 +860,9 @@ module.exports = function(io) {
       broadcastPlayersUpdate(roomId);
     });
 
-    // ── Leave Room ─────────────────────────────────────────────────────────────
-    // Accepts an optional ack so the client can navigate home only once the
-    // server has confirmed the departure (prevents optimistic navigation races).
+    // ── Leave Room ───────────────────────────────────────────────────────────
+    // Ack lets the client navigate home only once the server has confirmed
+    // the departure, avoiding an optimistic-navigation race.
     socket.on("leaveRoom", (ack) => {
       leaveCurrentRoom(socket);
       if (typeof ack === "function") {
@@ -976,12 +870,7 @@ module.exports = function(io) {
       }
     });
 
-    // ── Disconnect ────────────────────────────────────────────────────────────
-    // `leaveCurrentRoom` is called immediately and synchronously — there is no
-    // debounce or delay here. A `disconnect` event firing is already ground truth;
-    // there is nothing left to confirm. The reason string (e.g.
-    // "client namespace disconnect" for an explicit socket.disconnect() call,
-    // "transport close" for a dropped connection) is informational only.
+    // ── Disconnect ───────────────────────────────────────────────────────────
     socket.on("disconnect", () => {
       console.log(`Disconnected: ${socket.id}`);
       leaveCurrentRoom(socket);

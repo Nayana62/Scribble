@@ -1,14 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
-/**
- * Circular SVG countdown timer.
- *
- * Receives `endsAt` (epoch ms) from shared game state and ticks its own local
- * display state via setInterval — consistent with the "derived/computed display
- * values stay local" pattern used elsewhere in the codebase.
- *
- * Renders nothing when `endsAt` is null (between rounds / lobby).
- */
+// Circular SVG countdown timer. Ticks its own local display state from
+// `endsAt` via setInterval; renders empty when `endsAt` is null.
 
 const RADIUS = 20;
 const STROKE_WIDTH = 4;

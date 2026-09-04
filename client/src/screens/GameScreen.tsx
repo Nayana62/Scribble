@@ -55,6 +55,7 @@ export function GameScreen() {
   }, []);
 
   const canDraw = roundPhase === "drawing";
+  const showToolbar = isDrawer && canDraw;
 
   const wordStripProps = {
     wordChars,
@@ -69,32 +70,35 @@ export function GameScreen() {
   return (
     <div className="h-dvh md:h-screen w-full flex flex-col overflow-hidden overscroll-none">
       {/* Single grid — each panel mounts once and is repositioned between
-          mobile/desktop via .game-grid's media query (see index.css),
-          instead of duplicating every panel across two parallel trees. */}
+          mobile/desktop via .game-grid's media query (see index.css). */}
       <div
-        className={`game-grid flex-1 min-h-0 px-2 pt-2 md:p-3${
-          isDrawer && canDraw ? " game-grid--toolbar" : ""
-        }`}
-        style={
-          inputBarHeight > 0 ? { paddingBottom: inputBarHeight } : undefined
-        }
+        className="game-grid flex-1 min-h-0 px-2 pt-2 md:p-3"
+        style={{
+          ...(inputBarHeight > 0 ? { paddingBottom: inputBarHeight } : {}),
+          // Collapses the reserved toolbar space (see --toolbar-h in
+          // index.css) when there's no toolbar to show, so the canvas row
+          // shrinks to fit and the space flows to the players/chat row
+          // instead of sitting empty.
+          ...(!showToolbar ? { "--toolbar-h": "0px" } : {}),
+        } as React.CSSProperties}
       >
         <div className="game-grid__word">
           <WordStrip {...wordStripProps} />
         </div>
 
         <div className="game-grid__canvas">
-          <Canvas role={role} replayActions={replayActions} canDraw={canDraw} />
-          <CanvasPhaseOverlays
-            roundPhase={roundPhase}
-            choosingEndsAt={choosingEndsAt}
-            cycleNumber={cycleNumber}
-            isDrawer={isDrawer}
-            wordOptions={wordOptions}
-            drawerName={drawerName}
-            roundResult={state.roundResult}
-            myId={socket.id || ""}
-          />
+          <Canvas role={role} replayActions={replayActions} canDraw={canDraw}>
+            <CanvasPhaseOverlays
+              roundPhase={roundPhase}
+              choosingEndsAt={choosingEndsAt}
+              cycleNumber={cycleNumber}
+              isDrawer={isDrawer}
+              wordOptions={wordOptions}
+              drawerName={drawerName}
+              roundResult={state.roundResult}
+              myId={socket.id || ""}
+            />
+          </Canvas>
         </div>
 
         <div className="game-grid__players">

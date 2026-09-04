@@ -10,8 +10,8 @@ type Props = {
 export function ChatPanel({ role, players }: Props) {
   return (
     <div className="flex flex-col h-full min-h-0 bg-white/10 backdrop-blur-sm rounded-xl border border-white/20 overflow-hidden">
-      <div className="bg-white/10 px-3 py-2 shrink-0">
-        <span className="text-white font-bold text-sm tracking-wide">Chat</span>
+      <div className="bg-white/10 px-2.5 py-1.5 md:px-3 md:py-2 shrink-0">
+        <span className="text-white font-bold text-xs md:text-sm tracking-wide">Chat</span>
       </div>
       <ChatLog players={players} />
       <div className="hidden md:block shrink-0">

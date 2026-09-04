@@ -3,14 +3,9 @@ import { socket } from "../socket";
 import { useGame } from "../state/GameContext";
 import type { RankedGroup } from "../types";
 
-// EndScreen shows role-based controls:
-//   Host      → "Play Again" button + "Leave Room" button
-//   Non-host  → "Waiting for {hostName}…" status line + "Leave Room" button
-//
-// The live swap from the waiting text to the "Play Again" button when the
-// host leaves requires no extra listener here — `hostChanged` is already
-// handled globally in GameContext, which updates `state.isHost` for the
-// newly-promoted player on every render.
+// The swap from "waiting" text to the "Play Again" button when the host
+// leaves needs no listener here — GameContext already updates state.isHost
+// globally on `hostChanged`.
 
 export function EndScreen() {
   const { state, leaveRoom } = useGame();
@@ -64,8 +59,6 @@ export function EndScreen() {
       } else if (ack?.error) {
         setPlayAgainError("Something went wrong — try again.");
       }
-      // On success the server broadcasts `playAgain` to all clients
-      // which dispatches PLAY_AGAIN in the reducer — no extra handling needed here.
     });
   };
 

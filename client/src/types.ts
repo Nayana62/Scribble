@@ -126,13 +126,9 @@ export type RoundEndPayload = {
   winnerName: string;
 };
 
-/**
- * Payload for a `guessResult` socket event.
- * For a correct guess, the server sends two variants:
- *   - To the guesser: { text, senderId, senderName, correct: true, isSelfConfirm: true }
- *   - To everyone else: { senderId, senderName, correct: true, isSystemGuess: true }  (no text)
- * For an incorrect guess: { text, senderId, senderName, correct: false }
- */
+// For a correct guess the server sends two variants: the guesser gets
+// isSelfConfirm with their text, everyone else gets isSystemGuess with no
+// text (to avoid leaking the word).
 export type GuessResultPayload = {
   text?: string;
   senderId: string;

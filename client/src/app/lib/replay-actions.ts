@@ -40,16 +40,8 @@ function drawStrokePoints(
   ctx.stroke();
 }
 
-/**
- * Reconstruct the canvas by replaying an ordered DrawAction log from scratch.
- *
- * Always clears the canvas first, then applies each action in sequence.
- * The result is identical to what a live participant would see after the same
- * sequence of drawing events.
- *
- * @param ctx     - 2D rendering context of the target canvas
- * @param actions - Ordered action log (no 'undo' entries; those are already resolved)
- */
+// Reconstructs the canvas by clearing it and replaying an ordered DrawAction
+// log from scratch (no 'undo' entries — those are already resolved).
 export function replayActions(
   ctx: CanvasRenderingContext2D,
   actions: DrawAction[],

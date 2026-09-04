@@ -2,11 +2,7 @@ const crypto = require("crypto");
 
 const rooms = new Map();
 const socketRoomMap = new Map();
-/**
- * Reverse-lookup map: token → roomId.
- * Maintained in the socket handler alongside the player record's token field.
- * Allows O(1) lookup on `rejoin` without scanning all rooms.
- */
+// Reverse-lookup map (token → roomId) so `rejoin` doesn't need to scan all rooms.
 const tokenRoomMap = new Map();
 
 const ROOM_CAPACITY = 12;
@@ -35,7 +31,6 @@ function generateRoomId() {
   return id;
 }
 
-/** Generate an opaque per-player-per-room identity token. */
 function generateToken() {
   return crypto.randomUUID();
 }
@@ -59,35 +54,22 @@ function initRoom(roomId, hostId) {
     wordLength: 0,
     status: "waiting",
     cyclesCompleted: 0,
-    /**
-     * Ordered log of all drawing actions for the current round.
-     * Entries: { type:'stroke', points, color, width } | { type:'fill', x, y, color } | { type:'clear' }
-     * Used for late-joiner canvas replay. Undo pops the last entry instead of appending.
-     */
+    // Ordered log of drawing actions for the current round, used for late-joiner
+    // replay. Entries: {type:'stroke',points,color,width} | {type:'fill',x,y,color} | {type:'clear'}.
+    // Undo pops the last entry instead of appending.
     actionLog: [],
-    /** Words locked in this game — reset on play again. */
     usedWords: [],
-    /** @type {'announcement'|'choosing'|'drawing'|null} */
-    roundPhase: null,
-    /** Server-only options for the current choosing phase (never broadcast). */
-    choosingOptions: null,
-    /** Whether to reset the used-words pool when a word is locked in. */
+    roundPhase: null, // 'announcement' | 'choosing' | 'drawing' | null
+    choosingOptions: null, // server-only, never broadcast
     shouldResetUsedPoolOnLock: false,
-    /** Cycle number shown during the announcement overlay. */
     announcementCycleNumber: 0,
-    /**
-     * Ordered list of correct guesses for the active drawing round.
-     * Each entry: { playerId: string, guessedAt: number (epoch ms), name: string }
-     * Cleared at the start of each drawing phase and when endRound fires.
-     */
+    // Ordered list of {playerId, guessedAt, name} for the active drawing round.
+    // Cleared at the start of each drawing phase and when endRound fires.
     correctGuesses: [],
-    /**
-     * Epoch-ms when the active drawing timer expires.
-     * Stored here so computeRoundScores can calculate time-remaining bonuses
-     * even after clearRoundTimer() has already been called.
-     */
+    // Epoch-ms the drawing timer expires — kept separately so computeRoundScores
+    // can still calculate time-remaining bonuses after clearRoundTimer() runs.
     roundEndsAt: null,
-    // Timer state is managed externally in game/timer.js (keyed by roomId + kind).
+    // Timer state itself lives in game/timer.js, keyed by roomId + kind.
   };
   rooms.set(roomId, room);
   return room;

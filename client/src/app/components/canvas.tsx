@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { socket } from "../../socket.ts";
 import type { DrawAction, Point, StrokeBatch } from "../../types.ts";
 import { floodFill } from "../lib/flood-fill.ts";
@@ -16,12 +16,15 @@ type Props = {
   replayActions?: DrawAction[];
   /** When false, drawing input is disabled (e.g. during word-choosing phase). */
   canDraw?: boolean;
+  /** Rendered inside the canvas's own centering box, so overlays can match its exact bounds. */
+  children?: ReactNode;
 };
 
 export default function Canvas({
   role,
   replayActions: replayActionsProp = [],
   canDraw = true,
+  children,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -326,10 +329,8 @@ export default function Canvas({
 
       if (action.type === "stroke") {
         const a = action as DrawAction & { type: "stroke" };
+        // Already rendered via strokeBroadcast segments — just commit to the log.
         localActionLog.current.push({ type: "stroke", points: a.points, color: a.color, width: a.width });
-        // Replay only this stroke (already rendered via strokeBroadcast segments, but
-        // re-drawing via polyline ensures perfect pixel consistency with the drawer).
-        // We skip the full replayActions() here for performance — the log is already consistent.
       } else if (action.type === "fill") {
         const a = action as DrawAction & { type: "fill" };
         localActionLog.current.push({ type: "fill", x: a.x, y: a.y, color: a.color });
@@ -343,7 +344,6 @@ export default function Canvas({
           replayActions(ctx, localActionLog.current);
         }
       }
-      // Keep canUndo in sync for non-drawers too (in case role ever changes mid-round)
     }
 
     function handleCanvasCleared() {
@@ -381,23 +381,20 @@ export default function Canvas({
         : "crosshair";
 
   return (
-    <div className="flex flex-col h-full bg-white/10 backdrop-blur-sm rounded-xl border border-white/20 overflow-hidden gap-0">
-      {/* Canvas area — the canvas itself is aspect-ratio-locked (3:4 portrait,
-          matching its 600x800 backing resolution) and centered here, rather
-          than stretched to fill the container. This keeps drawings looking
-          identical across every viewer instead of distorted differently per
-          device, and keeps line width scaling uniform.
-          The .game-grid canvas track (index.css) is itself sized to this
-          same 3:4 ratio, so in the common case this box already matches the
-          canvas exactly and no centering/letterboxing is visible — the
-          centering here only kicks in as a safety net for viewport shapes
-          extreme enough to hit that track's min()-capped ceiling. */}
-      <div className="flex-1 min-h-0 relative overflow-hidden flex items-center justify-center">
+    // No background of its own — the card chrome lives on the <canvas> below,
+    // so the toolbar slot reads as transparent space while guessing.
+    <div className="flex flex-col h-full gap-0">
+      {/* aspect-ratio-locked (10:9) and centered rather than stretched, so
+          drawings look identical across devices. max-w/max-h (not w-full)
+          gives contain semantics that can't distort the drawing. basis-auto
+          (not flex-1's basis-0) avoids collapsing this container when the
+          grid cell hugs its content on desktop. */}
+      <div className="grow shrink basis-auto min-h-0 relative overflow-hidden flex items-center justify-center">
         <canvas
           ref={canvasRef}
-          width={600}
-          height={800}
-          className="max-w-full max-h-full aspect-[3/4] block bg-white touch-none"
+          width={800}
+          height={720}
+          className="max-w-full max-h-full aspect-[10/9] block bg-white touch-none md:rounded-xl md:ring-1 md:ring-white/20"
           style={{ cursor: canvasCursor }}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
@@ -408,11 +405,14 @@ export default function Canvas({
           onTouchEnd={handleTouchEnd}
           onTouchCancel={handleTouchEnd}
         />
+        {children}
       </div>
 
-      {/* Toolbar — drawer only, hidden during choosing phase */}
-      {role === "drawer" && canDraw && (
-        <div className="shrink-0 px-2 pt-1.5 pb-2">
+      {/* --toolbar-h is set to 0 by GameScreen when this is empty, so the
+          slot (and the grid row/column that budgets space for it) collapses
+          instead of leaving a gap. */}
+      <div className="shrink-0 px-2 py-1.5 h-[var(--toolbar-h)] overflow-hidden">
+        {role === "drawer" && canDraw && (
           <Toolbar
             activeColor={activeColor}
             onColorChange={setActiveColor}
@@ -424,8 +424,8 @@ export default function Canvas({
             onUndo={handleUndo}
             onClear={handleClear}
           />
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

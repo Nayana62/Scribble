@@ -264,15 +264,8 @@ function pickWord() {
   return WORDS[Math.floor(Math.random() * WORDS.length)];
 }
 
-/**
- * Pick `count` unique word options, excluding words in `usedWords`.
- * If fewer than `count` unused words remain, signals that the used pool
- * should be reset before recording the eventual choice.
- *
- * @param {string[]} usedWords
- * @param {number} [count=3]
- * @returns {{ options: string[]; shouldResetUsedPool: boolean }}
- */
+// Picks `count` unique words excluding `usedWords`. If fewer than `count`
+// unused words remain, signals that the used pool should be reset.
 function pickWordOptions(usedWords, count = 3) {
   const pickUnique = (pool, n) => {
     const copy = [...pool];
